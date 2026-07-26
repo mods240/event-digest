@@ -2,529 +2,1289 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#12172B">
-<title>動画を投稿する</title>
-<!--
-  Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-26b
-  Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
--->
+<title>Digest Maker</title>
 <style>
-  :root{
-    --ink:#12172B;
-    --ink-2:#1B2240;
-    --ink-3:#262E52;
-    --line:rgba(255,255,255,.10);
-    --amber:#F2B138;
-    --amber-soft:#FFD98A;
-    --light:#E9EBF3;
-    --muted:#8990AE;
-    --good:#5FC793;
-    --bad:#FF7A6B;
-    --r:16px;
-  }
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
-  body{
-    background:var(--ink);
-    background-image:radial-gradient(120% 60% at 50% -10%, rgba(242,177,56,.16) 0%, rgba(242,177,56,0) 60%);
-    background-repeat:no-repeat;
-    color:var(--light);
-    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic Medium",sans-serif;
-    line-height:1.7;
-    min-height:100vh;
-    min-height:100dvh;
-    padding:0 20px calc(40px + env(safe-area-inset-bottom));
-  }
-  .wrap{max-width:460px;margin:0 auto}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a2e; color:#eee; font-family:-apple-system,sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
 
-  /* ---- header ---- */
-  .eyebrow{
-    margin:36px 0 0;font-size:11px;letter-spacing:.22em;text-transform:uppercase;
-    color:var(--amber);font-weight:700;
-  }
-  h1{
-    margin:10px 0 0;font-size:31px;line-height:1.35;font-weight:800;letter-spacing:-.01em;
-  }
-  h1 .accent{color:var(--amber)}
-  .lead{margin:14px 0 0;color:var(--muted);font-size:14px}
+/* ヘッダー */
+#hd { background:#16213e; padding:6px 14px; display:flex; align-items:center; gap:10px; border-bottom:1px solid #0f3460; -webkit-app-region:drag; flex-shrink:0; }
+#hd h1 { font-size:15px; color:#e94560; font-weight:700; }
+.rt { font-size:22px; font-weight:700; font-family:monospace; color:#fff; }
+.st { font-size:11px; color:#aaa; }
+.hb { -webkit-app-region:no-drag; border:none; color:#fff; padding:6px 13px; border-radius:5px; cursor:pointer; font-size:12px; font-weight:600; }
+#recBtn { background:#e94560; }
+#recBtn.on { background:#555; }
+#folderBtn { background:#0f3460; border:1px solid #1a6b9a; color:#5fa8d3; margin-left:auto; }
+#fcpxmlBtn { background:#0f3460; border:1px solid #8e44ad; color:#b07cd6; }
+#prxmlBtn { background:#0f3460; border:1px solid #9b59b6; color:#c89be0; }
+#fcpxmlBtn:disabled, #prxmlBtn:disabled { opacity:0.5; cursor:wait; }
+#exportBtn { background:#0f3460; border:1px solid #e94560; color:#e94560; }
+#exportBtn:disabled { opacity:0.5; cursor:wait; }
+#camSel { -webkit-app-region:no-drag; background:#0f3460; border:1px solid #333; color:#eee; padding:4px 7px; border-radius:5px; font-size:11px; max-width:155px; }
+#audSel { -webkit-app-region:no-drag; background:#0f3460; border:1px solid #333; color:#eee; padding:4px 7px; border-radius:5px; font-size:11px; max-width:150px; }
+#vu { display:flex; gap:2px; height:26px; align-items:flex-end; padding:2px 4px; background:#0a0a14; border:1px solid #333; border-radius:4px; }
+#vu .vuch { width:5px; height:22px; background:#1c1c28; border-radius:2px; overflow:hidden; position:relative; display:flex; align-items:flex-end; }
+#vu .vuch i { display:block; width:100%; height:0%; background:linear-gradient(to top,#27ae60 0%,#27ae60 60%,#f0a500 80%,#e94560 100%); transition:height .05s linear; }
+#vu.rec { opacity:0.35; }
+#reloadCamBtn { background:#0f3460; border:1px solid #333; color:#5fa8d3; padding:5px 8px; }
+#reloadCamBtn:hover { background:#1a6b9a; color:#fff; }
+.dd { font-size:12px; color:#f0a500; font-family:monospace; }
+.sd { font-size:10px; color:#27ae60; font-family:monospace; }
+#pxSt { font-size:10px; padding:2px 7px; border-radius:3px; background:#333; color:#777; }
+#pxSt.ok { background:#0d2218; color:#27ae60; }
 
-  /* ---- signature: upload dial ---- */
-  .dial{
-    position:relative;width:196px;height:196px;margin:34px auto 0;
-    display:block;border:0;padding:0;background:none;cursor:pointer;
-  }
-  .dial svg{position:absolute;inset:0;transform:rotate(-90deg)}
-  .dial .track{fill:none;stroke:var(--ink-3);stroke-width:6}
-  .dial .fill{
-    fill:none;stroke:var(--amber);stroke-width:6;stroke-linecap:round;
-    stroke-dasharray:590;stroke-dashoffset:590;
-    transition:stroke-dashoffset .25s linear;
-  }
-  .dial-face{
-    position:absolute;inset:16px;border-radius:50%;
-    background:var(--ink-2);border:1px solid var(--line);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    gap:6px;padding:16px;text-align:center;
-  }
-  .dial-glyph{font-size:30px;line-height:1}
-  .dial-label{font-size:14px;font-weight:700;color:var(--light)}
-  .dial-sub{font-size:11px;color:var(--muted);word-break:break-all;line-height:1.5}
-  .dial-pct{font-size:34px;font-weight:800;color:var(--amber);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
-  .dial:disabled{cursor:default;opacity:.55}
-  .dial.is-busy{cursor:progress}
+/* 3カラム */
+#main { display:flex; flex:1; overflow:hidden; }
 
-  /* ---- form ---- */
-  .field{margin-top:26px}
-  label.lbl{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:7px;letter-spacing:.04em}
-  input[type=text]{
-    width:100%;padding:14px 15px;font-size:16px;color:var(--light);
-    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
-    font-family:inherit;
-  }
-  input[type=text]:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:transparent}
-  .hint{margin:7px 0 0;font-size:11px;color:var(--muted)}
+/* 左：ライブ */
+#lp { width:37%; display:flex; flex-direction:column; border-right:1px solid #0f3460; flex-shrink:0; }
+#lw { flex:1; background:#000; position:relative; }
+#lv { width:100%; height:100%; object-fit:contain; }
+#rb { position:absolute; top:6px; left:6px; background:rgba(233,69,96,0.9); color:#fff; padding:3px 8px; border-radius:3px; font-size:11px; font-weight:700; display:none; }
+#rb.on { display:block; }
+#cs { position:absolute; bottom:5px; left:6px; font-size:10px; color:#aaa; background:rgba(0,0,0,0.6); padding:2px 6px; border-radius:3px; }
+#iob { background:#16213e; padding:8px 10px; display:flex; gap:6px; align-items:center; border-top:1px solid #0f3460; flex-shrink:0; }
+.ib { border:none; color:#cfd6e6; padding:8px 14px; border-radius:5px; cursor:pointer; font-size:13px; font-weight:700; background:#243046; transition:background .12s, color .12s; }
+#inB.act  { background:#27ae60; color:#fff; }
+#outB.act { background:#e67e22; color:#fff; }
+#inD  { font-family:monospace; font-size:12px; color:#27ae60; min-width:80px; }
 
-  .consent{
-    display:flex;gap:11px;align-items:flex-start;margin-top:20px;
-    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;padding:14px;
-    cursor:pointer;
-  }
-  .consent input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--amber);flex:none}
-  .consent span{font-size:13px;line-height:1.6}
+/* 中：クリップリスト */
+#cp { width:33%; display:flex; flex-direction:column; border-right:1px solid #0f3460; }
+#cph { padding:6px 10px; background:#16213e; border-bottom:1px solid #0f3460; display:flex; align-items:center; gap:6px; flex-shrink:0; }
+#cph h2 { font-size:12px; color:#aaa; flex:1; }
+#paB { background:#27ae60; border:none; color:#fff; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:700; }
+#spB { background:#e94560; border:none; color:#fff; padding:5px 10px; border-radius:4px; cursor:pointer; font-size:11px; display:none; }
+#cl { flex:1; overflow-y:auto; padding:4px; }
+.ci { background:#16213e; border:1px solid #0f3460; border-radius:5px; padding:6px 8px; margin-bottom:4px; display:flex; align-items:center; gap:5px; cursor:pointer; transition:border-color 0.1s; }
+.ci.sel { border-color:#e94560; box-shadow:0 0 0 1px #e94560 inset; }
+.ci:hover { border-color:#555; }
+.ci.playing { border-color:#27ae60; background:#0d2218; }
+.cn { color:#e94560; font-weight:700; font-size:12px; min-width:16px; }
+.cthumb { width:60px; height:34px; border-radius:3px; background:#000 center/cover no-repeat; flex-shrink:0; border:1px solid #0f3460; position:relative; }
+.cthumb:not(.has)::after { content:'…'; position:absolute; inset:0; display:flex; align-items:center; justify-content:center; color:#445; font-size:14px; }
+.cif { flex:1; min-width:0; }
+.cd { font-size:12px; color:#fff; font-weight:600; }
+.ct { font-family:monospace; font-size:10px; color:#aaa; }
+.cs2 { font-size:9px; color:#444; }
+.cready { font-size:9px; color:#27ae60; }
+.cready.wait { color:#555; }
+.cb { border:none; color:#fff; border-radius:3px; cursor:pointer; font-size:10px; padding:3px 6px; flex-shrink:0; }
+.slb { background:#333; }
+.slb.on { background:#f0a500; color:#000; }
+.plb { background:#27ae60; }
+.dup { background:#0f3460; color:#5fa8d3; }
+.dup:hover { background:#1a6b9a; color:#fff; }
+.mvb { background:#222; color:#888; padding:3px 4px; }
+.mvb:hover { background:#0f3460; color:#fff; }
+.dlb { background:none; color:#555; font-size:13px; }
+.dlb:hover { color:#e94560; }
 
-  .btn{
-    width:100%;margin-top:18px;padding:17px;border:0;border-radius:13px;
-    background:var(--amber);color:#241802;font-size:16px;font-weight:800;
-    font-family:inherit;cursor:pointer;letter-spacing:.02em;
-  }
-  .btn:disabled{background:var(--ink-3);color:var(--muted);cursor:default}
-  .btn:focus-visible{outline:2px solid var(--amber-soft);outline-offset:2px}
+/* 右：プレビュー */
+#pp { flex:1; display:flex; flex-direction:column; }
+#pvh { padding:6px 10px; background:#16213e; border-bottom:1px solid #0f3460; display:flex; align-items:center; gap:6px; flex-shrink:0; }
+#pvh h2 { font-size:12px; color:#aaa; }
+#pvlb { font-size:11px; color:#27ae60; flex:1; }
+#pvix { font-size:10px; color:#555; }
+#pvw { flex:1; background:#000; position:relative; overflow:hidden; }
+#pv { width:100%; height:100%; object-fit:contain; }
+#pvpb { position:absolute; top:6px; left:6px; background:rgba(39,174,96,0.9); color:#fff; padding:3px 8px; border-radius:3px; font-size:11px; font-weight:700; display:none; }
+#pvpb.on { display:block; }
+#pvslb { position:absolute; top:6px; right:6px; background:rgba(240,165,0,0.9); color:#000; padding:3px 8px; border-radius:3px; font-size:11px; font-weight:700; display:none; }
+#pvslb.on { display:block; }
+#pvld { position:absolute; inset:0; background:rgba(0,0,0,0.82); display:none; align-items:center; justify-content:center; flex-direction:column; gap:8px; font-size:13px; }
+#pvld.on { display:flex; }
+#pvld p { font-size:11px; color:#777; }
+#pvc { padding:7px 10px; background:#16213e; border-top:1px solid #0f3460; display:flex; gap:5px; align-items:center; flex-shrink:0; }
+.pb { border:none; color:#fff; border-radius:4px; cursor:pointer; font-size:12px; padding:6px 12px; }
+#pvprev { background:#0f3460; }
+#pvpaus { background:#27ae60; font-weight:700; }
+#pvnext { background:#0f3460; }
+#pvslw  { background:#333; }
+#pvslw.on { background:#f0a500; color:#000; }
+#pvstop { background:#e94560; }
+.pvsp { flex:1; }
 
-  /* ---- posted list ---- */
-  .sec-head{
-    display:flex;justify-content:space-between;align-items:baseline;
-    margin:34px 0 12px;padding-top:22px;border-top:1px solid var(--line);
-  }
-  .sec-head h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.06em;color:var(--muted)}
-  .count{font-size:13px;font-weight:800;color:var(--amber);font-variant-numeric:tabular-nums}
-  .item{
-    display:flex;align-items:center;gap:12px;
-    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
-    padding:13px 14px;margin-bottom:9px;
-  }
-  .item-dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
-  .item-body{flex:1;min-width:0}
-  .item-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .item-meta{font-size:11px;color:var(--muted)}
-  .item-del{
-    background:none;border:1px solid var(--line);color:var(--muted);
-    border-radius:9px;padding:7px 11px;font-size:12px;cursor:pointer;font-family:inherit;flex:none;
-  }
-  .empty{color:var(--muted);font-size:13px;padding:4px 0 2px}
+/* タイムライン */
+#tlp { height:86px; background:#0d0d1a; border-top:1px solid #0f3460; position:relative; flex-shrink:0; }
+#tlp h3 { position:absolute; top:4px; left:8px; font-size:10px; color:#555; }
+#tlt { position:absolute; top:18px; left:0; right:0; bottom:4px; display:flex; align-items:center; padding:0 8px; gap:2px; overflow-x:auto; }
+.tlc { height:46px; min-width:36px; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:9px; font-weight:700; color:#fff; flex-shrink:0; cursor:pointer; }
+.tlc:hover { opacity:0.8; }
+.tlc.playing { outline:2px solid #fff; }
+.tlc span { padding:0 3px; text-align:center; line-height:1.3; }
+.tltot { position:absolute; bottom:3px; right:8px; font-size:10px; font-family:monospace; color:#f0a500; }
 
-  /* ---- notes ---- */
-  details{margin-top:30px;border-top:1px solid var(--line);padding-top:18px}
-  summary{font-size:12px;color:var(--muted);cursor:pointer;font-weight:700;letter-spacing:.04em}
-  details ul{margin:14px 0 0;padding-left:18px}
-  details li{font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.65}
-
-  /* ---- states ---- */
-  .msg{margin-top:16px;padding:13px 14px;border-radius:12px;font-size:13px;display:none;line-height:1.6}
-  .msg.show{display:block}
-  .msg.ok{background:rgba(95,199,147,.12);color:var(--good);border:1px solid rgba(95,199,147,.3)}
-  .msg.err{background:rgba(255,122,107,.12);color:var(--bad);border:1px solid rgba(255,122,107,.3)}
-  .msg.warn{background:rgba(242,177,56,.10);color:var(--amber-soft);border:1px solid rgba(242,177,56,.28)}
-
-  .screen{display:none;padding:80px 0;text-align:center}
-  .screen.show{display:block}
-  .screen h2{font-size:23px;margin:0 0 12px}
-  .screen p{color:var(--muted);font-size:14px;margin:0}
-  #app.hidden,#loading.hidden{display:none}
-  #loading{padding:100px 0;text-align:center;color:var(--muted);font-size:13px}
-
-  @media (prefers-reduced-motion:reduce){
-    .dial .fill{transition:none}
-  }
+/* トリミングモーダル */
+#trm { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.9); z-index:999; align-items:center; justify-content:center; }
+#trm.on { display:flex; }
+#trbox { background:#16213e; border:1px solid #0f3460; border-radius:10px; width:680px; max-width:92vw; padding:16px; display:flex; flex-direction:column; gap:10px; }
+#trbox h2 { font-size:13px; color:#e94560; }
+#trvw { background:#000; border-radius:5px; position:relative; overflow:hidden; }
+#trv { width:100%; max-height:270px; object-fit:contain; display:block; }
+#trvt { position:absolute; bottom:4px; right:6px; font-family:monospace; font-size:11px; color:#fff; background:rgba(0,0,0,0.7); padding:2px 5px; border-radius:3px; }
+/* トリムバー */
+#trbarwrap { overflow-x:auto; overflow-y:hidden; border-radius:4px; background:#0d0d1a; }
+#trbarwrap::-webkit-scrollbar { height:8px; }
+#trbarwrap::-webkit-scrollbar-thumb { background:#0f3460; border-radius:4px; }
+#trbar { position:relative; height:50px; background:#0d0d1a; border-radius:4px; cursor:default; width:100%; }
+.tcjump { background:#0f3460; }
+.tcnudge { background:#2c3e6b; padding:6px 8px; }
+.tczoom { background:#8e44ad; }
+.tcsep { color:#444; }
+.tlzbtn { background:#8e44ad; color:#fff; border:none; border-radius:3px; width:20px; height:18px; font-size:12px; cursor:pointer; margin-left:4px; vertical-align:middle; }
+.tlzbtn:hover { background:#a55cc8; }
+#trtrack { position:absolute; top:13px; left:0; right:0; height:22px; background:#333; border-radius:3px; }
+#trclip { position:absolute; top:13px; height:22px; background:#1a6b9a; opacity:0.35; pointer-events:none; border-radius:2px; }
+#trrange { position:absolute; top:13px; height:22px; background:#e94560; opacity:0.5; pointer-events:none; }
+#trslowlayer { position:absolute; top:13px; height:22px; left:0; right:0; pointer-events:none; }
+.slowseg { position:absolute; top:0; height:22px; background:#f0a500; opacity:0.75; border-radius:2px; }
+.slowseg::after { content:'🐢'; position:absolute; top:2px; left:50%; transform:translateX(-50%); font-size:11px; }
+#trhIn  { position:absolute; top:5px; width:12px; height:38px; background:#27ae60; border-radius:3px; cursor:ew-resize; transform:translateX(-50%); z-index:10; display:flex; align-items:center; justify-content:center; }
+#trhOut { position:absolute; top:5px; width:12px; height:38px; background:#e67e22; border-radius:3px; cursor:ew-resize; transform:translateX(-50%); z-index:10; display:flex; align-items:center; justify-content:center; }
+#trhIn::after,#trhOut::after { content:''; width:2px; height:16px; background:rgba(255,255,255,0.5); border-radius:1px; }
+#trph { position:absolute; top:5px; width:2px; height:38px; background:#fff; pointer-events:none; z-index:8; }
+.trlb { position:absolute; bottom:-15px; font-size:9px; font-family:monospace; white-space:nowrap; transform:translateX(-50%); color:#aaa; }
+#trctr { display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+#trslowctr { display:flex; gap:6px; align-items:center; flex-wrap:wrap; padding-top:4px; border-top:1px solid #0f3460; }
+#trbtns { display:flex; gap:6px; align-items:center; justify-content:flex-end; }
+.slowlbl { font-size:11px; color:#f0a500; font-weight:700; }
+.tcslow { background:#f0a500; color:#000; }
+.slowsel { background:#0f3460; color:#eee; border:1px solid #333; border-radius:4px; padding:5px; font-size:11px; }
+#slowInfo { font-family:monospace; font-size:11px; color:#f0a500; flex:1; }
+#tcslclr { background:#444; }
+.tc { border:none; color:#fff; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:11px; font-weight:600; }
+#tcpl { background:#27ae60; }
+#tcin { background:#27ae60; }
+#tcot { background:#e67e22; }
+#tcap { background:#e94560; }
+#tccn { background:#444; }
+#tcif { font-family:monospace; font-size:11px; color:#aaa; flex:1; text-align:center; }
 </style>
 </head>
 <body>
-<div class="wrap">
 
-  <div id="loading">読み込んでいます…</div>
-
-  <!-- 受付終了 -->
-  <div class="screen" id="closed">
-    <h2 id="closedTitle"></h2>
-    <p id="closedBody"></p>
+<div id="hd">
+  <h1>🎬 Digest Maker</h1>
+  <div>
+    <div class="rt" id="recTime">00:00:00</div>
+    <div class="st">目標 05:00 | 残 <span id="remDisp" style="color:#f0a500">05:00</span></div>
   </div>
-
-  <!-- 本体 -->
-  <main id="app" class="hidden">
-    <p class="eyebrow" id="eventName"></p>
-    <h1 id="heading"></h1>
-    <p class="lead" id="lead"></p>
-
-    <input type="file" id="file" accept="video/*" hidden>
-
-    <button class="dial" id="dial" type="button">
-      <svg viewBox="0 0 196 196" aria-hidden="true">
-        <circle class="track" cx="98" cy="98" r="94"></circle>
-        <circle class="fill" id="ring" cx="98" cy="98" r="94"></circle>
-      </svg>
-      <span class="dial-face" id="dialFace">
-        <span class="dial-glyph">＋</span>
-        <span class="dial-label">動画を選ぶ</span>
-        <span class="dial-sub">カメラロールから</span>
-      </span>
-    </button>
-
-    <div class="field">
-      <label class="lbl" for="nick">おなまえ（ニックネーム可）</label>
-      <input type="text" id="nick" maxlength="20" placeholder="例：たけし" autocomplete="nickname">
-      <p class="hint">エンドロールに表示されることがあります。本名でなくて構いません。</p>
-    </div>
-
-    <label class="consent">
-      <input type="checkbox" id="consent">
-      <span id="consentText"></span>
-    </label>
-
-    <button class="btn" id="send" disabled>投稿する</button>
-
-    <div class="msg" id="msg"></div>
-
-    <div class="sec-head">
-      <h2>投稿済みの動画</h2>
-      <span class="count" id="count">0 / 3</span>
-    </div>
-    <div id="list"><p class="empty">まだ投稿はありません。</p></div>
-
-    <details>
-      <summary>個人情報の取り扱いについて</summary>
-      <ul id="notes"></ul>
-    </details>
-  </main>
+  <button class="hb" id="recBtn" onclick="toggleRec()" title="録画スタート/ストップ（Rキー）">● REC</button>
+  <select id="camSel" onchange="startCam()"><option>選択中...</option></select>
+  <select id="audSel" title="録音する音声デバイス" onchange="startVU()"><option value="">🔇 音声なし</option></select>
+  <div id="vu" title="音声入力レベル"><div class="vuch"><i id="vuL"></i></div><div class="vuch"><i id="vuR"></i></div></div>
+  <button class="hb" id="reloadCamBtn" onclick="reloadCams()" title="デバイス再読み込み（OBS/キャプチャ起動後に押す）">🔄</button>
+  <span class="dd">合計:<span id="totDur">0:00</span></span>
+  <span class="sd" id="segD">SEG:-</span>
+  <span id="pxSt">PROXY:-</span>
+  <button class="hb" id="folderBtn" onclick="chooseFolder()" title="録画の保存先を選択">📁 保存先</button>
+  <button class="hb" id="fcpxmlBtn" onclick="doExportFcpxml()" title="DaVinci Resolve用（FCPXML）">🎬 FCPXML</button>
+  <button class="hb" id="prxmlBtn" onclick="doExportPremiereXml()" title="Premiere Pro用（FCP7 XML）">🟣 Pr XML</button>
+  <button class="hb" id="exportBtn" onclick="doExport()">📤 MP4書き出し</button>
 </div>
 
-<script type="module">
-// ============================================================
-// ★ APP_CONFIG ── ここだけ書き換えてください
-// ============================================================
-const APP_CONFIG = {
-  eventId: "test-001",
+<div id="main">
+  <!-- 左：ライブ -->
+  <div id="lp">
+    <div id="lw">
+      <video id="lv" autoplay muted playsinline></video>
+      <div id="rb">● REC</div>
+      <div id="cs">初期化中...</div>
+    </div>
+    <div id="iob">
+      <button class="ib" id="inB"  onclick="setIn()" title="IN点をセット（Iキー）">[ IN <small>(I)</small></button>
+      <span id="inD">IN: --:--</span>
+      <button class="ib" id="outB" onclick="setOut()" title="OUT点をセットして登録（Oキー）">OUT ] <small>(O)</small></button>
+    </div>
+  </div>
 
-  // Firebase コンソール → プロジェクトの設定 → マイアプリ（ウェブ）の設定値
-  firebase: {
-    apiKey:            "AIzaSyBuHIvsRF9UtT14m14-qWR--aVMKl7XAhw",
-    authDomain:        "event-digest-e9565.firebaseapp.com",
-    databaseURL:       "https://event-digest-e9565-default-rtdb.asia-southeast1.firebasedatabase.app",
-    projectId:         "event-digest-e9565",
-    storageBucket:     "event-digest-e9565.firebasestorage.app",
-    messagingSenderId: "791344995733",
-    appId:             "1:791344995733:web:adbca1acd6d871c8576a9c"
-  },
+  <!-- 中：クリップ -->
+  <div id="cp">
+    <div id="cph">
+      <h2>クリップ (<span id="ccnt">0</span>)</h2>
+      <button id="paB" onclick="playAll()">▶ 全再生</button>
+      <button id="spB" onclick="stopPlay()">■ 停止</button>
+    </div>
+    <div id="cl"></div>
+  </div>
 
-  maxFiles: 3,
-  maxFileSizeMB: 2048,       // 安全弁。通常の投稿では発火しません
-  largeFileWarnMB: 300,      // これを超えたら「時間がかかります」と表示
+  <!-- 右：プレビュー -->
+  <div id="pp">
+    <div id="pvh">
+      <h2>📺 Preview&nbsp;</h2>
+      <span id="pvlb">-</span>
+      <span id="pvix"></span>
+    </div>
+    <div id="pvw">
+      <video id="pv"></video>
+      <div id="pvpb">▶ PLAY</div>
+      <div id="pvslb">🐢 SLOW 50%</div>
+      <div id="pvld"><span>⏳ クリップ準備中...</span><p id="pvldmsg"></p></div>
+    </div>
+    <div id="pvc">
+      <button class="pb" id="pvprev" onclick="prevClip()">⏮</button>
+      <button class="pb" id="pvpaus" onclick="pvPause()">⏸</button>
+      <button class="pb" id="pvnext" onclick="nextClip()">⏭</button>
+      <button class="pb" id="pvslw"  onclick="pvToggleSlow()">🐢 スロー</button>
+      <span class="pvsp"></span>
+      <button class="pb" id="pvstop" onclick="stopPlay()">■ 停止</button>
+    </div>
+  </div>
+</div>
 
-  texts: {
-    eventName: "AVA SUMMER PARTY 2026",
-    heading: '今日のいちばんを、<span class="accent">1本</span>。',
-    lead: "本日撮影された動画の中から、いちばん印象に残った1本をご投稿ください。エンディング映像の素材として使わせていただきます。",
-    consent: "投稿した動画が、本日のエンディング映像の制作に使用されることに同意します。",
-    notes: [
-      "お預かりした動画は、本イベントのエンディング映像制作を目的として使用いたします。",
-      "動画に他の参加者が映り込んでいる場合は、その方の了解が得られる範囲でのご投稿をお願いいたします。",
-      "元の動画素材は、イベント終了後30日以内に削除いたします。",
-      "完成した映像の当日上映以降の取り扱い（社内での共有・記録保存・広報活動等）につきましては、主催者の判断によるものとします。",
-      "ご入力いただいたニックネームは、映像のエンドロールに表示される場合があります。"
-    ],
-    closedTitle: "受付は終了しました",
-    closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。"
+<div id="tlp">
+  <h3>TIMELINE <button class="tlzbtn" onclick="tlZoom(1)" title="拡大（X）">＋</button><button class="tlzbtn" onclick="tlZoom(-1)" title="縮小（Z）">－</button></h3>
+  <div id="tlt"></div>
+  <div class="tltot" id="tlTot">合計: 0:00 / 目標: 5:00</div>
+</div>
+
+<!-- トリミング -->
+<div id="trm">
+  <div id="trbox">
+    <h2>✂ トリミング ＆ 可変スロー</h2>
+    <div id="trvw">
+      <video id="trv"></video>
+      <div id="trvt">0:00</div>
+    </div>
+    <div id="trbarwrap">
+      <div id="trbar">
+        <div id="trtrack"></div>
+        <div id="trclip"></div>
+        <div id="trrange"></div>
+        <div id="trslowlayer"></div>
+        <div id="trhIn"><span class="trlb" id="lbIn">IN</span></div>
+        <div id="trhOut"><span class="trlb" id="lbOut">OUT</span></div>
+        <div id="trph"></div>
+      </div>
+    </div>
+    <div id="trctr">
+      <button class="tc" id="tcpl" onclick="trimPlay()">▶ 再生</button>
+      <button class="tc tcjump" onclick="trimJumpIn()" title="IN点へ移動">⏮ IN</button>
+      <button class="tc tcjump" onclick="trimJumpOut()" title="OUT点へ移動">OUT ⏭</button>
+      <span class="tcsep">|</span>
+      <button class="tc" id="tcin" onclick="trimSetIn()" title="現在位置をINに（I）">[ IN</button>
+      <button class="tc tcnudge" onclick="trimNudge('in',-1)" title="INを1コマ戻す">IN−</button>
+      <button class="tc tcnudge" onclick="trimNudge('in',1)" title="INを1コマ送る">IN+</button>
+      <button class="tc" id="tcot" onclick="trimSetOut()" title="現在位置をOUTに（O）">OUT ]</button>
+      <button class="tc tcnudge" onclick="trimNudge('out',-1)" title="OUTを1コマ戻す">OUT−</button>
+      <button class="tc tcnudge" onclick="trimNudge('out',1)" title="OUTを1コマ送る">OUT+</button>
+      <span class="tcsep">|</span>
+      <button class="tc tczoom" onclick="trimZoom(1)" title="拡大（X）">🔍＋</button>
+      <button class="tc tczoom" onclick="trimZoom(-1)" title="縮小（Z）">🔍－</button>
+      <span id="tcif">--</span>
+    </div>
+    <div id="trslowctr">
+      <span class="slowlbl">🐢 可変スロー:</span>
+      <button class="tc tcslow" id="tcslin" onclick="slowSetStart()">スロー開始点</button>
+      <button class="tc tcslow" id="tcslout" onclick="slowSetEnd()">スロー終了点</button>
+      <select id="slowRate" class="slowsel">
+        <option value="2">0.5倍速</option>
+        <option value="3">0.33倍速</option>
+        <option value="4">0.25倍速</option>
+      </select>
+      <span id="slowInfo">区間:なし</span>
+      <button class="tc" id="tcslclr" onclick="slowClear()">区間クリア</button>
+    </div>
+    <div id="trbtns">
+      <button class="tc" id="tccn" onclick="closeTrim()">キャンセル</button>
+      <button class="tc" id="tcap" onclick="applyTrim()">✓ 適用</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+const TARGET = 300;
+const COLORS = ['#e94560','#1a6b9a','#27ae60','#e67e22','#8e44ad','#2980b9','#c0392b','#16a085','#d35400','#7f8c8d'];
+
+let isRec=false, recMs=null, recTmr=null;
+let clips=[], inT=null, segLog=[], proxyLog=[];
+let clipCounter=0;  // 連番（並べ替えても変わらない固定番号）
+let playing=false, pQueue=[], pIdx=0, pvSlow=false, pTimer=null;
+let selIdx=-1;  // 選択中クリップ（全再生の開始位置）
+
+const pv = document.getElementById('pv');
+
+// ── カメラ ──
+let avDevices = [];        // avfoundation の実デバイス [{index,name}]
+let avAudio = [];          // 音声デバイス [{index,name}]
+let selectedAvIndex = -1;  // 録画に使う avfoundation インデックス（-1=未選択）
+
+// 見えない制御文字（LTRマーク等）を除去して比較・表示用に整える
+function cleanName(s){ return String(s||'').replace(/[\u200E\u200F\u202A-\u202E]/g,'').trim(); }
+
+async function loadAvDevices(){
+  try {
+    const r = await ipcRenderer.invoke('list-av-devices');
+    avDevices = (r && r.devices) ? r.devices : [];
+    avAudio = (r && r.audio) ? r.audio : [];
+  } catch(e){ avDevices = []; avAudio = []; }
+  console.log('[AV] video:', avDevices, 'audio:', avAudio);
+  // 音声デバイスのドロップダウンを更新
+  const aud=document.getElementById('audSel');
+  if(aud){
+    const prev=aud.value;
+    aud.innerHTML='<option value="">🔇 音声なし</option>';
+    avAudio.forEach(d=>{
+      const o=document.createElement('option');
+      o.value=String(d.index);
+      o.textContent=`🎙 ${d.index}: ${cleanName(d.name)}`;
+      aud.appendChild(o);
+    });
+    // 以前の選択を維持
+    if(prev!=='' && avAudio.some(d=>String(d.index)===prev)) aud.value=prev;
   }
-};
-
-// ============================================================
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-import { getAuth, signInAnonymously, onAuthStateChanged }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-import { getDatabase, ref as dbRef, set, remove, get, onValue, serverTimestamp }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
-import { getStorage, ref as stRef, uploadBytesResumable, deleteObject }
-  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
-
-const T = APP_CONFIG.texts;
-const EV = APP_CONFIG.eventId;
-const MAX_BYTES = APP_CONFIG.maxFileSizeMB * 1024 * 1024;
-const WARN_BYTES = APP_CONFIG.largeFileWarnMB * 1024 * 1024;
-
-const $ = (id) => document.getElementById(id);
-const el = {
-  loading:$("loading"), app:$("app"), closed:$("closed"),
-  eventName:$("eventName"), heading:$("heading"), lead:$("lead"),
-  dial:$("dial"), dialFace:$("dialFace"), ring:$("ring"),
-  file:$("file"), nick:$("nick"), consent:$("consent"), consentText:$("consentText"),
-  send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
-  closedTitle:$("closedTitle"), closedBody:$("closedBody")
-};
-
-// ---- 文言の流し込み ----
-el.eventName.textContent = T.eventName;
-el.heading.innerHTML = T.heading;
-el.lead.textContent = T.lead;
-el.consentText.textContent = T.consent;
-el.closedTitle.textContent = T.closedTitle;
-el.closedBody.textContent = T.closedBody;
-el.notes.innerHTML = T.notes.map((n) => `<li></li>`).join("");
-[...el.notes.children].forEach((li, i) => { li.textContent = T.notes[i]; });
-
-// ---- 状態 ----
-let uid = null;
-let db = null, storage = null;
-let picked = null;
-let uploading = false;
-let mine = {};      // uploadId -> { fileName, storagePath, at }
-let isClosed = false;
-
-// ---- ユーティリティ ----
-function mb(bytes){
-  if (bytes >= 1024*1024*1024) return (bytes/1024/1024/1024).toFixed(1) + " GB";
-  return Math.round(bytes/1024/1024) + " MB";
+  startVU();  // 音声レベル監視を開始/更新
 }
-function showMsg(text, kind){
-  el.msg.textContent = text;
-  el.msg.className = "msg show " + (kind || "warn");
+
+// ── 音声入力モニター（VUメーター） ──
+let vuStream=null, vuCtx=null, vuRAF=null;
+function stopVU(){
+  if(vuRAF){ cancelAnimationFrame(vuRAF); vuRAF=null; }
+  if(vuStream){ try{vuStream.getTracks().forEach(t=>t.stop());}catch(e){} vuStream=null; }
+  if(vuCtx){ try{vuCtx.close();}catch(e){} vuCtx=null; }
+  const l=document.getElementById('vuL'), r=document.getElementById('vuR');
+  if(l) l.style.height='0%'; if(r) r.style.height='0%';
 }
-function clearMsg(){ el.msg.className = "msg"; }
-function setRing(pct){
-  const C = 590;
-  el.ring.style.strokeDashoffset = String(C - C * Math.max(0, Math.min(1, pct)));
+async function matchBrowserAudioId(avName){
+  const devs=(await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='audioinput');
+  const an=cleanName(avName).toLowerCase();
+  let hit=devs.find(d=>cleanName(d.label).toLowerCase()===an)
+        || devs.find(d=>{const bl=cleanName(d.label).toLowerCase(); return bl&&(bl.includes(an)||an.includes(bl));});
+  return hit?hit.deviceId:'';
 }
-function faceIdle(){
-  el.dialFace.innerHTML =
-    '<span class="dial-glyph">＋</span>' +
-    '<span class="dial-label">動画を選ぶ</span>' +
-    '<span class="dial-sub">カメラロールから</span>';
-  setRing(0);
-}
-function facePicked(name, size){
-  el.dialFace.innerHTML = '<span class="dial-glyph">🎬</span>' +
-    '<span class="dial-label">選択中</span><span class="dial-sub"></span>';
-  el.dialFace.querySelector(".dial-sub").textContent = name + " / " + mb(size);
-  setRing(0);
-}
-function faceProgress(pct){
-  if (!el.dialFace.querySelector(".dial-pct")) {
-    el.dialFace.innerHTML = '<span class="dial-pct">0%</span><span class="dial-sub">送信中…</span>';
+async function startVU(){
+  stopVU();
+  if(isRec){ console.log('[VU] skip (recording)'); return; }
+  const aIdx=document.getElementById('audSel').value;
+  if(aIdx===''){ console.log('[VU] no audio device selected'); return; }
+  const dev=avAudio.find(d=>String(d.index)===aIdx);
+  const bid=dev ? await matchBrowserAudioId(dev.name) : '';
+  console.log('[VU] start: avIdx=',aIdx,'name=',dev&&dev.name,'browserId=',bid||'(default)');
+  // まず厳密指定→ダメなら緩い指定→最後にデフォルトで順にトライ
+  const tries = [];
+  if(bid) tries.push({audio:{deviceId:{exact:bid}}, video:false});
+  if(bid) tries.push({audio:{deviceId:bid}, video:false});
+  tries.push({audio:true, video:false});
+  for(const constraints of tries){
+    try{
+      vuStream=await navigator.mediaDevices.getUserMedia(constraints);
+      const tr=vuStream.getAudioTracks()[0];
+      console.log('[VU] got stream:', tr&&tr.label);
+      break;
+    }catch(e){ console.warn('[VU] getUserMedia try failed:', e.name, e.message); vuStream=null; }
   }
-  el.dialFace.querySelector(".dial-pct").textContent = Math.round(pct*100) + "%";
-  setRing(pct);
-}
-function facePreparing(){
-  el.dialFace.innerHTML = '<span class="dial-glyph">⋯</span><span class="dial-label">準備中</span>' +
-    '<span class="dial-sub">そのままお待ちください</span>';
-}
-function faceDone(){
-  el.dialFace.innerHTML = '<span class="dial-glyph">✓</span><span class="dial-label">送信できました</span>' +
-    '<span class="dial-sub">ありがとうございます</span>';
-  setRing(1);
+  if(!vuStream){ console.error('[VU] could not open any audio input'); return; }
+  try{
+    vuCtx=new (window.AudioContext||window.webkitAudioContext)();
+    if(vuCtx.state==='suspended'){ try{ await vuCtx.resume(); }catch(e){} }
+    const src=vuCtx.createMediaStreamSource(vuStream);
+    const splitter=vuCtx.createChannelSplitter(2);
+    src.connect(splitter);
+    const anL=vuCtx.createAnalyser(), anR=vuCtx.createAnalyser();
+    anL.fftSize=256; anR.fftSize=256;
+    splitter.connect(anL,0); splitter.connect(anR,1);
+    const bufL=new Uint8Array(anL.fftSize), bufR=new Uint8Array(anR.fftSize);
+    const elL=document.getElementById('vuL'), elR=document.getElementById('vuR');
+    const rms=(an,buf)=>{ an.getByteTimeDomainData(buf); let s=0; for(let i=0;i<buf.length;i++){const v=(buf[i]-128)/128; s+=v*v;} return Math.sqrt(s/buf.length); };
+    let pL=0,pR=0;
+    const loop=()=>{
+      const l=Math.min(1,rms(anL,bufL)*3.5), r=Math.min(1,rms(anR,bufR)*3.5);
+      pL=Math.max(l, pL*0.85); pR=Math.max(r, pR*0.85);
+      elL.style.height=(pL*100).toFixed(0)+'%';
+      elR.style.height=(pR*100).toFixed(0)+'%';
+      vuRAF=requestAnimationFrame(loop);
+    };
+    loop();
+    console.log('[VU] meter running');
+  }catch(e){ console.error('[VU] audio context error:', e); }
 }
 
-function refreshSendButton(){
-  const n = Object.keys(mine).length;
-  el.send.disabled = !(picked && el.consent.checked && el.nick.value.trim() && !uploading
-                       && n < APP_CONFIG.maxFiles && !isClosed);
-}
-
-function renderList(){
-  const ids = Object.keys(mine).sort();
-  el.count.textContent = ids.length + " / " + APP_CONFIG.maxFiles;
-  if (ids.length === 0){
-    el.list.innerHTML = '<p class="empty">まだ投稿はありません。</p>';
-    refreshSendButton();
-    return;
-  }
-  el.list.innerHTML = "";
-  ids.forEach((id) => {
-    const it = mine[id];
-    const row = document.createElement("div");
-    row.className = "item";
-    row.innerHTML = '<span class="item-dot"></span><div class="item-body">' +
-      '<div class="item-name"></div><div class="item-meta"></div></div>' +
-      '<button class="item-del" type="button">取り消す</button>';
-    row.querySelector(".item-name").textContent = it.fileName;
-    row.querySelector(".item-meta").textContent = mb(it.bytes || 0) + " ・ 受付済み";
-    row.querySelector(".item-del").addEventListener("click", () => removeUpload(id));
-    el.list.appendChild(row);
+// avfoundationデバイス名に対応するブラウザの deviceId を探す（プレビュー用・best-effort）
+function matchBrowserId(avName, browserDevs){
+  const an = cleanName(avName).toLowerCase();
+  if(!an) return '';
+  let hit = browserDevs.find(d => cleanName(d.label).toLowerCase() === an);
+  if(!hit) hit = browserDevs.find(d => {
+    const bl = cleanName(d.label).toLowerCase();
+    return bl && (bl.includes(an) || an.includes(bl));
   });
-  refreshSendButton();
+  return hit ? hit.deviceId : '';
 }
 
-// ---- 投稿の取り消し ----
-async function removeUpload(id){
-  if (uploading) return;
-  if (!confirm("この投稿を取り消しますか？")) return;
-  const it = mine[id];
+async function initCam() {
+  const cs=document.getElementById('cs');
   try {
-    await remove(dbRef(db, `events/${EV}/uploads/${id}`));
-    await remove(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`));
-    try { await deleteObject(stRef(storage, it.storagePath)); } catch(e){ /* 既に無い場合は無視 */ }
-    delete mine[id];
-    renderList();
-    showMsg("投稿を取り消しました。", "warn");
-  } catch (e){
-    showMsg("取り消しに失敗しました。通信環境をご確認のうえ、もう一度お試しください。", "err");
+    // 権限取得（これに成功しないとデバイス名が空になる）
+    let probe;
+    try {
+      probe = await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+    } catch(permErr) {
+      cs.textContent='カメラ権限が必要です（🔄で再試行）';
+      console.error('[CAM] getUserMedia failed:', permErr.name, permErr.message);
+      return;
+    }
+
+    await loadAvDevices();
+    const browserDevs = (await navigator.mediaDevices.enumerateDevices()).filter(d=>d.kind==='videoinput');
+    try { probe.getTracks().forEach(t=>t.stop()); } catch(e){}
+
+    const sel = document.getElementById('camSel');
+    sel.innerHTML='';
+
+    // 録画はavfoundationの番号で確実に指定する。ドロップダウンの値＝録画番号。
+    // 画面キャプチャ・デスクビューは録画対象から除外。
+    const cams = avDevices.filter(d => !/capture screen|desk ?view|デスクビュー/i.test(d.name));
+
+    if(cams.length===0){
+      const o=document.createElement('option'); o.textContent='カメラが見つかりません'; sel.appendChild(o);
+      cs.textContent='デバイス0台（OBS/キャプチャ起動後に🔄）';
+      return;
+    }
+
+    cams.forEach(d=>{
+      const o=document.createElement('option');
+      o.value=String(d.index);                          // ★録画用index（確実）
+      o.textContent=`${d.index}: ${cleanName(d.name)}`;  // 番号付きで表示（ユーザーが確認できる）
+      o.dataset.bid = matchBrowserId(d.name, browserDevs); // プレビュー用 deviceId
+      sel.appendChild(o);
+    });
+
+    // デフォルト選択：OBS/仮想カメラ以外を優先（OBSが既定になり251で落ちる問題を回避）
+    const nonObs = Array.from(sel.options).find(o=>!/obs|virtual/i.test(o.textContent));
+    sel.value = nonObs ? nonObs.value : sel.options[0].value;
+
+    cs.textContent=`${cams.length}台`;
+    await startCam();
+  } catch(e){
+    cs.textContent='エラー:'+e.message;
+    console.error('[CAM] initCam error:', e);
   }
 }
 
-// ---- ファイル選択 ----
-el.dial.addEventListener("click", () => {
-  if (uploading || isClosed) return;
-  if (Object.keys(mine).length >= APP_CONFIG.maxFiles){
-    showMsg(`投稿は${APP_CONFIG.maxFiles}本までです。入れ替える場合は、下の一覧から取り消してください。`, "warn");
-    return;
+async function startCam(){
+  const sel=document.getElementById('camSel');
+  const cs=document.getElementById('cs');
+  const opt=sel.options[sel.selectedIndex];
+  // 録画用インデックス＝ドロップダウンの値（avfoundation番号）。これで確実に一致。
+  selectedAvIndex = parseInt(sel.value);
+  if(isNaN(selectedAvIndex)) selectedAvIndex = -1;
+  const bid = (opt && opt.dataset) ? opt.dataset.bid : '';
+  console.log('[CAM] recording avIndex=', selectedAvIndex, ' previewBid=', bid?'(matched)':'(none)', ' label=', opt&&opt.textContent);
+  try{
+    const s=await navigator.mediaDevices.getUserMedia(bid?{video:{deviceId:{exact:bid}},audio:false}:{video:true,audio:false});
+    document.getElementById('lv').srcObject=s;
+    cs.textContent='● '+(opt?opt.textContent:'');
+  }catch(e){
+    // プレビューが出せなくても録画番号は有効なので、その旨だけ表示
+    cs.textContent='録画可（プレビュー不可）: '+(opt?opt.textContent:'');
+    console.error('[CAM] preview error:', e);
   }
-  el.file.click();
-});
+}
+// デバイス再読み込み（権限付与後・OBS起動後に押す）
+async function reloadCams(){
+  document.getElementById('cs').textContent='再読み込み中...';
+  await initCam();
+}
+initCam();
 
-el.file.addEventListener("change", () => {
-  const f = el.file.files && el.file.files[0];
-  if (!f) return;
-  clearMsg();
-  if (f.size > MAX_BYTES){
-    picked = null; faceIdle();
-    showMsg(`ファイルが大きすぎます（${mb(f.size)}）。${APP_CONFIG.maxFileSizeMB} MB までの動画をお選びください。`, "err");
-    refreshSendButton();
-    return;
-  }
-  picked = f;
-  facePicked(f.name, f.size);
-  if (f.size > WARN_BYTES){
-    showMsg(`${mb(f.size)}あります。送信に数分かかることがあります。完了表示が出るまで、この画面を開いたままお待ちください。`, "warn");
-  }
-  refreshSendButton();
-});
+// ── クリップ自動バックアップ（クラッシュ予防）──
+let backupTimer=null;
+function backupClips(){
+  // 連続呼び出しをまとめる（デバウンス）
+  if(backupTimer) clearTimeout(backupTimer);
+  backupTimer=setTimeout(()=>{
+    ipcRenderer.invoke('backup-clips', {
+      savedAt: Date.now(),
+      baseDir: window._baseDir || null,
+      clips: clips
+    });
+  }, 400);
+}
 
-el.nick.addEventListener("input", () => {
-  localStorage.setItem("evdigest_nick", el.nick.value);
-  refreshSendButton();
-});
-el.consent.addEventListener("change", refreshSendButton);
-
-// ---- 送信 ----
-el.send.addEventListener("click", () => {
-  if (!picked || uploading) return;
-  uploading = true;
-  el.send.disabled = true;
-  el.dial.classList.add("is-busy");
-  clearMsg();
-  facePreparing();
-
-  const f = picked;
-  const id = `${uid}_${Date.now()}`;
-  const ext = (f.name.match(/\.[A-Za-z0-9]+$/) || [".mp4"])[0];
-  const storagePath = `events/${EV}/uploads/${uid}/${id}${ext}`;
-  const nickname = el.nick.value.trim();
-
-  const task = uploadBytesResumable(
-    stRef(storage, storagePath), f,
-    { contentType: f.type || "video/mp4" }
-  );
-
-  window.onbeforeunload = () => "送信中です。画面を閉じると投稿が取り消されます。";
-
-  task.on("state_changed",
-    (snap) => { faceProgress(snap.bytesTransferred / snap.totalBytes); },
-    (err) => {
-      window.onbeforeunload = null;
-      uploading = false;
-      el.dial.classList.remove("is-busy");
-      facePicked(f.name, f.size);
-      const m = (err && err.code === "storage/unauthorized")
-        ? "この形式またはサイズの動画は受け付けられません。別の動画をお試しください。"
-        : "送信できませんでした。電波の良い場所で、もう一度お試しください。";
-      showMsg(m, "err");
-      refreshSendButton();
-    },
-    async () => {
-      try {
-        const rec = {
-          nickname, uid,
-          fileName: f.name,
-          storagePath,
-          bytes: f.size,
-          uploadedAt: serverTimestamp(),
-          status: "uploaded"
-        };
-        await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
-        await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
-          fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
-        });
-        mine[id] = { fileName: f.name, storagePath, bytes: f.size };
-        faceDone();
-        showMsg("投稿を受け付けました。ありがとうございます。", "ok");
-        picked = null;
-        el.file.value = "";
-        renderList();
-        setTimeout(() => { if (!uploading) faceIdle(); }, 2600);
-      } catch (e){
-        showMsg("受付処理に失敗しました。もう一度お試しください。", "err");
-      } finally {
-        window.onbeforeunload = null;
-        uploading = false;
-        el.dial.classList.remove("is-busy");
-        refreshSendButton();
-      }
+// 起動時：前回のバックアップがあれば復元を提案
+async function checkBackupOnStartup(){
+  const r=await ipcRenderer.invoke('get-clips-backup');
+  if(r.exists && r.data && Array.isArray(r.data.clips) && r.data.clips.length>0){
+    const when=r.data.savedAt ? new Date(r.data.savedAt).toLocaleString('ja-JP') : '不明';
+    const n=r.data.clips.length;
+    if(confirm(`前回のクリップデータが見つかりました（${n}件 / ${when}）。\n復元しますか？\n\n※録画ファイルが残っている場合のみ再生・書き出しできます。`)){
+      clips=r.data.clips;
+      // 番号(num)が無い古いデータは振り直し、clipCounterを最大numに合わせる
+      let mx=0;
+      clips.forEach((c,i)=>{ if(c.num===undefined) c.num=i+1; if(c.num>mx) mx=c.num; });
+      clipCounter=mx;
+      // セグメントログを復元（録画ファイルが残っていれば使える）
+      const segs=await ipcRenderer.invoke('get-segment-log');
+      if(segs && segs.length) segLog=segs;
+      renderClips();
     }
-  );
+  }
+}
+checkBackupOnStartup();
+
+// バックグラウンド先読みループ：未切り出しのクリップを順次処理
+setInterval(()=>{
+  if(!isRec && clips.length===0) return;
+  // 切り出されていない & 進行中でないクリップを1つ見つけて切り出す
+  for(const c of clips){
+    if(!extractCache[c.id] && !extractInflight[c.id]){
+      ensureExtracted(c);
+      break; // 1度に1つだけ（CPU負荷分散）
+    }
+  }
+}, 1500);
+
+// ── IPC ──
+ipcRenderer.on('rec-failed',()=>{
+  const cs=document.getElementById('cs');
+  if(cs) cs.textContent='⚠ 録画開始に失敗（カメラを確認）';
+  alert('録画を開始できませんでした。\nカメラがほかのアプリで使用中でないか、別のカメラを選んで再試行してください。');
+  // 録画状態をリセット
+  isRec=false; try{clearInterval(recTmr);}catch(e){}
+  const b=document.getElementById('recBtn'); if(b){b.textContent='● REC'; b.classList.remove('on');}
+  const rb=document.getElementById('rb'); if(rb) rb.classList.remove('on');
+});
+ipcRenderer.on('rec-format-fallback',()=>{
+  const cs=document.getElementById('cs');
+  if(cs) cs.textContent='● 録画中（デバイス既定の画質）';
+  console.log('[REC] format fallback to device default');
+});
+ipcRenderer.on('segment-created',(e,seg)=>{
+  segLog.push(seg);
+  document.getElementById('segD').textContent=`SEG:#${seg.index}(${ft(seg.startSec)}〜)`;
+});
+ipcRenderer.on('proxy-ready',(e,data)=>{
+  document.getElementById('pxSt').textContent=`✅ PROXY:#${data.index}準備完了`;
+  document.getElementById('pxSt').classList.add('ok');
+  // このセグメントに属する未切り出しクリップをバックグラウンド切り出し
+  clips.forEach(c=>{
+    if(c.segIndex===data.index && !extractCache[c.id] && !extractInflight[c.id]){
+      ensureExtracted(c);
+    }
+  });
 });
 
-// ---- 締切の監視 ----
-function watchDeadline(){
-  onValue(dbRef(db, `events/${EV}/config`), (snap) => {
-    const c = snap.val() || {};
-    const over = (c.closed === true) ||
-                 (typeof c.deadline === "number" && Date.now() > c.deadline);
-    isClosed = over;
-    if (over && !uploading){
-      el.app.classList.add("hidden");
-      el.closed.classList.add("show");
+// ── 録画 ──
+async function toggleRec(){
+  if(!isRec){
+    if(selectedAvIndex < 0){ return alert('録画するカメラを選んでください'); }
+    segLog=[]; proxyLog=[]; extractCache={}; extractInflight={}; thumbCache={}; thumbInflight={};
+    document.getElementById('pxSt').textContent='PROXY:起動中...';
+    document.getElementById('pxSt').classList.remove('ok');
+    // ドロップダウンで選んだ avfoundation 番号で録画（音声デバイスも）
+    const audioIndex = document.getElementById('audSel').value;
+    console.log('[REC] start with avIndex=', selectedAvIndex, 'audio=', audioIndex||'none');
+    const r=await ipcRenderer.invoke('start-recording', { deviceIndex: selectedAvIndex, audioIndex: audioIndex });
+    if(r.success){
+      isRec=true; recMs=Date.now();
+      stopVU();  // 録画中はVUを停止（同じ音声デバイスの競合を防ぐ）
+      const vuel=document.getElementById('vu'); if(vuel) vuel.classList.add('rec');
+      document.getElementById('recBtn').textContent='■ STOP';
+      document.getElementById('recBtn').classList.add('on');
+      document.getElementById('rb').classList.add('on');
+      recTmr=setInterval(()=>document.getElementById('recTime').textContent=ft(Math.floor((Date.now()-recMs)/1000)),500);
+    }
+  } else {
+    await ipcRenderer.invoke('stop-recording');
+    isRec=false; clearInterval(recTmr);
+    document.getElementById('recBtn').textContent='● REC';
+    document.getElementById('recBtn').classList.remove('on');
+    document.getElementById('rb').classList.remove('on');
+    // IN状態をリセット
+    inT=null; document.getElementById('inD').textContent='IN: --:--';
+    document.getElementById('inB').classList.remove('act');
+    document.getElementById('outB').classList.remove('act');
+    const vuel=document.getElementById('vu'); if(vuel) vuel.classList.remove('rec');
+    startVU();  // 録画停止でVU監視を再開
+  }
+}
+
+// ── IN/OUT ──
+function setIn(){
+  if(!isRec) return alert('録画中のみ');
+  inT=Math.floor((Date.now()-recMs)/1000);
+  document.getElementById('inD').textContent='IN: '+ft(inT);
+  document.getElementById('inB').classList.add('act');   // IN点灯（緑）
+}
+function setOut(){if(inT===null) return alert('先にIN'); markClip();}
+
+async function markClip(){
+  if(inT===null) return alert('先にIN');
+  const ot=Math.floor((Date.now()-recMs)/1000);
+  if(ot<=inT) return alert('OUTはINより後に');
+  const log=await ipcRenderer.invoke('get-segment-log');
+  // INが属するセグメントを特定（次回トリムの中心用。範囲はまたいでOK）
+  let s=null;
+  for(let i=log.length-1;i>=0;i--){
+    if(log[i].startSec<=inT){s=log[i];break;}
+  }
+  if(!s&&log.length>0) s=log[0];
+  if(!s) s={index:0,startSec:0,path:''};
+
+  // セグメント境界はまたいで構わない（書き出し時に複数セグメントを自動連結）
+  const finalOut = ot;
+
+  // OUTボタンを一瞬点灯（オレンジ）
+  const outB=document.getElementById('outB');
+  outB.classList.add('act');
+  setTimeout(()=>{ outB.classList.remove('act'); document.getElementById('inB').classList.remove('act'); }, 450);
+
+  const newClip = {
+    id:Date.now(), num:++clipCounter, inSec:inT, outSec:finalOut, duration:finalOut-inT,
+    segIndex:s.index, segPath:s.path, segStartSec:s.startSec,
+    slow:false, label:`クリップ ${clipCounter}`
+  };
+  clips.push(newClip);
+  inT=null;
+  document.getElementById('inD').textContent='IN: --:--';
+  renderClips();
+
+  // 登録直後にバックグラウンドでプレビュー切り出しを開始
+  setTimeout(()=>{ ensureExtracted(newClip); }, 500);
+}
+
+// ── 描画 ──
+function renderClips(){
+  const l=document.getElementById('cl');
+  l.innerHTML='';
+  clips.forEach((c,i)=>{
+    const d=document.createElement('div');
+    d.className='ci'+(i===selIdx?' sel':''); d.id=`ci-${c.id}`;
+    d.title='クリックで選択 / ダブルクリックでトリミング';
+    d.onclick=()=>selectClip(i);
+    d.ondblclick=()=>openTrim(c.id);
+    const thumbStyle = thumbCache[c.id] ? `background-image:url('file://${thumbCache[c.id]}')` : '';
+    d.innerHTML=`
+      <span class="cn">${c.num!==undefined?c.num:(i+1)}</span>
+      <div class="cthumb${thumbCache[c.id]?' has':''}" id="thumb-${c.id}" style="${thumbStyle}"></div>
+      <div class="cif">
+        <div class="cd">${ft(c.duration)}${(c.slow||(c.slowRegions&&c.slowRegions.length))?' 🐢':''} <span class="cready" id="ready-${c.id}">${extractCache[c.id]?'●':'○'}</span></div>
+        <div class="ct">${ft(c.inSec)}→${ft(c.outSec)}</div>
+        <div class="cs2">SEG#${c.segIndex}</div>
+      </div>
+      <button class="cb slb${c.slow?' on':''}" onclick="event.stopPropagation();toggleSlow(${c.id})" title="スロー50%">🐢</button>
+      <button class="cb dup" onclick="event.stopPropagation();dupClip(${c.id})" title="複製">⧉</button>
+      <button class="cb mvb" onclick="event.stopPropagation();moveClip(${c.id},-1)" title="上へ">▲</button>
+      <button class="cb mvb" onclick="event.stopPropagation();moveClip(${c.id},1)" title="下へ">▼</button>
+      <button class="cb plb" onclick="event.stopPropagation();playClip(${i})">▶</button>
+      <button class="cb dlb" onclick="event.stopPropagation();delClip(${c.id})">✕</button>
+    `;
+    l.appendChild(d);
+    if(!thumbCache[c.id]) ensureThumb(c);
+  });
+  document.getElementById('ccnt').textContent=clips.length;
+  renderTL(); updDur();
+  backupClips();
+}
+function delClip(id){clips=clips.filter(c=>c.id!==id); delete extractCache[id]; renderClips();}
+
+// クリップ複製：同じIN/OUTで新しいクリップをすぐ下に挿入
+function dupClip(id){
+  const idx=clips.findIndex(c=>c.id===id);
+  if(idx<0) return;
+  const src=clips[idx];
+  const newId=Date.now()+Math.floor(Math.random()*1000);
+  const copy={
+    ...src,
+    id:newId,
+    num:++clipCounter,
+    // slowRegions等もコピー（配列は新しい参照に）
+    slowRegions: Array.isArray(src.slowRegions) ? src.slowRegions.map(r=>({...r})) : [],
+    label:`クリップ ${clipCounter}`
+  };
+  clips.splice(idx+1,0,copy);
+  // プレビューMP4・サムネも複製してすぐ表示できるように
+  if(extractCache[src.id]){
+    ipcRenderer.invoke('copy-preview',{fromId:src.id,toId:copy.id}).then(r=>{
+      if(r&&r.success){ extractCache[copy.id]=r.path; const el=document.getElementById(`ready-${copy.id}`); if(el)el.textContent='●'; }
+    });
+  }
+  if(thumbCache[src.id]){ thumbCache[copy.id]=thumbCache[src.id]; }
+  renderClips();
+}
+
+// クリップ並び替え：dir=-1 上へ / +1 下へ
+function moveClip(id,dir){
+  const idx=clips.findIndex(c=>c.id===id);
+  if(idx<0) return;
+  const ni=idx+dir;
+  if(ni<0||ni>=clips.length) return;
+  [clips[idx],clips[ni]]=[clips[ni],clips[idx]];
+  renderClips();
+}
+function toggleSlow(id){
+  const c=clips.find(c=>c.id===id); if(!c) return;
+  c.slow=!c.slow; ipcRenderer.invoke('delete-preview',id); renderClips();
+}
+
+// ── 再生（extract-clip→MP4→再生） ──
+function hlPlay(idx,show){
+  document.querySelectorAll('.ci').forEach(e=>e.classList.remove('playing'));
+  document.querySelectorAll('.tlc').forEach(e=>e.classList.remove('playing'));
+  if(show&&idx!==undefined&&clips[idx]){
+    const c=clips[idx];
+    const ci=document.getElementById(`ci-${c.id}`);
+    if(ci){ci.classList.add('playing');ci.scrollIntoView({behavior:'smooth',block:'nearest'});}
+    const ti=document.getElementById(`tl-${c.id}`);
+    if(ti) ti.classList.add('playing');
+  }
+  document.getElementById('pvpb').classList.toggle('on',show);
+  // 「全再生」は常に表示。再生中は「■停止」も併せて表示する。
+  document.getElementById('paB').style.display='';
+  document.getElementById('spB').style.display=show?'':'none';
+}
+
+// クリップの切り出し結果をキャッシュ（id -> filepath）
+let extractCache = {};
+let extractInflight = {};  // 進行中の切り出し（二重起動防止）
+let thumbCache = {};       // クリップサムネ（id -> file path）
+let thumbInflight = {};
+
+// サムネをバックグラウンド生成
+async function ensureThumb(clip){
+  if(thumbCache[clip.id]) return thumbCache[clip.id];
+  if(thumbInflight[clip.id]) return await thumbInflight[clip.id];
+  const p=(async()=>{
+    const r=await ipcRenderer.invoke('make-thumb',clip);
+    delete thumbInflight[clip.id];
+    if(r&&r.success){
+      thumbCache[clip.id]=r.path;
+      const el=document.getElementById(`thumb-${clip.id}`);
+      if(el){ el.style.backgroundImage=`url('file://${r.path}?t=${Date.now()}')`; el.classList.add('has'); }
+      return r.path;
+    }
+    return null;
+  })();
+  thumbInflight[clip.id]=p;
+  return await p;
+}
+
+async function ensureExtracted(clip, _attempt){
+  if(extractCache[clip.id]) return extractCache[clip.id];
+  // すでに切り出し中なら、その完了を待つ
+  if(extractInflight[clip.id]) return await extractInflight[clip.id];
+
+  const attempt = _attempt || 1;
+  const p = (async()=>{
+    const r=await ipcRenderer.invoke('extract-clip',clip);
+    delete extractInflight[clip.id];
+    if(r.success){
+      extractCache[clip.id]=r.path;
+      const el=document.getElementById(`ready-${clip.id}`);
+      if(el){ el.textContent='●'; el.classList.remove('wait'); }
+      return r.path;
+    }
+    // 失敗：録画中は切り出し元（セグメント）がまだ不安定なことがあるので自動リトライ
+    if(attempt < 5){
+      console.log(`[EXTRACT] retry clip ${clip.id} (attempt ${attempt+1})`);
+      const el=document.getElementById(`ready-${clip.id}`);
+      if(el){ el.textContent='⏳'; el.classList.add('wait'); }
+      setTimeout(()=>{ if(!extractCache[clip.id] && !extractInflight[clip.id]) ensureExtracted(clip, attempt+1); }, 3000);
     } else {
-      el.closed.classList.remove("show");
-      el.app.classList.remove("hidden");
+      console.log(`[EXTRACT] give up clip ${clip.id} after ${attempt} attempts`);
     }
-    refreshSendButton();
-  }, () => { /* config 未設定でも動作します */ });
+    return null;
+  })();
+  extractInflight[clip.id] = p;
+  return await p;
 }
 
-// ---- 起動 ----
-(async function start(){
-  try {
-    const app = initializeApp(APP_CONFIG.firebase);
-    const auth = getAuth(app);
-    db = getDatabase(app);
-    storage = getStorage(app);
-
-    await signInAnonymously(auth);
-    await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u){ uid = u.uid; res(); } }));
-
-    const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
-    mine = snap.val() || {};
-
-    el.nick.value = localStorage.getItem("evdigest_nick") || "";
-
-    el.loading.classList.add("hidden");
-    el.app.classList.remove("hidden");
-    faceIdle();
-    renderList();
-    watchDeadline();
-  } catch (e){
-    el.loading.textContent = "接続できませんでした。電波の良い場所で、ページを再読み込みしてください。";
+// 次のクリップを裏で先読み（進行中なら何もしない）
+function prefetchNext(){
+  const nextIdx = pQueue[pIdx+1];
+  if(nextIdx===undefined) return;
+  const nextClip = clips[nextIdx];
+  if(nextClip && !extractCache[nextClip.id] && !extractInflight[nextClip.id]){
+    ensureExtracted(nextClip);
   }
-})();
+}
+
+async function playSingle(idx){
+  const clip=clips[idx]; if(!clip) return;
+  document.getElementById('pvlb').textContent=clip.label;
+  document.getElementById('pvix').textContent=`(${idx+1}/${clips.length})`;
+  document.getElementById('pvslb').classList.toggle('on',clip.slow||pvSlow);
+  hlPlay(idx,true);
+
+  // 既に切り出し済みか確認
+  let filePath = extractCache[clip.id];
+  if(!filePath){
+    const ld=document.getElementById('pvld');
+    ld.classList.add('on');
+    document.getElementById('pvldmsg').textContent='切り出し中...';
+    filePath = await ensureExtracted(clip);
+    ld.classList.remove('on');
+  }
+
+  if(!filePath){
+    // 1回だけリトライ（キャッシュ削除して再切り出し）
+    console.log('[PLAY] extract failed, retry once');
+    delete extractCache[clip.id];
+    delete extractInflight[clip.id];
+    await ipcRenderer.invoke('delete-preview', clip.id);
+    filePath = await ensureExtracted(clip);
+  }
+  if(!filePath){
+    console.log('[PLAY] extract failed after retry, skip');
+    if(playing){pIdx++; if(pIdx<pQueue.length) playSingle(pQueue[pIdx]); else stopPlay();}
+    return;
+  }
+
+  // クリーンアップ
+  if(pTimer){clearTimeout(pTimer);pTimer=null;}
+  pv.onended=null;
+  pv.pause();
+
+  pv.src=`file://${filePath}`;
+  pv.load();
+  pv.playbackRate=(clip.slow||pvSlow)?0.5:1.0;
+
+  // canplay待ち（max6秒）。errorが出たら失敗扱い
+  const loadOk = await new Promise(res=>{
+    let done=false;
+    const ok=(v)=>{if(!done){done=true;res(v);}};
+    pv.addEventListener('canplay',()=>ok(true),{once:true});
+    pv.addEventListener('error',()=>ok(false),{once:true});
+    setTimeout(()=>ok(true),6000);
+  });
+  if(!playing) return;
+
+  if(loadOk===false){
+    // 読み込み失敗→キャッシュ削除して次へ
+    console.log('[PLAY] load error, skip');
+    delete extractCache[clip.id];
+    if(playing){pIdx++; if(pIdx<pQueue.length) playSingle(pQueue[pIdx]); else stopPlay();}
+    return;
+  }
+
+  // 再生開始 & 次を先読み
+  try{ await pv.play(); }catch(e){ console.error('pvPlay:',e); }
+  prefetchNext();
+
+  // onended主体で次へ（タイマーは保険）
+  pv.onended=()=>{
+    pv.onended=null;
+    if(pTimer){clearTimeout(pTimer);pTimer=null;}
+    if(!playing) return;
+    pIdx++; if(pIdx<pQueue.length) playSingle(pQueue[pIdx]); else stopPlay();
+  };
+
+  // 保険タイマー（onendedが来ない場合のみ発火、duration+2秒）
+  const rate=(clip.slow||pvSlow)?0.5:1.0;
+  const ms=(clip.duration/rate)*1000 + 2000;
+  pTimer=setTimeout(()=>{
+    pTimer=null;
+    if(!playing) return;
+    if(pv.onended){ pv.onended=null; }
+    pIdx++; if(pIdx<pQueue.length) playSingle(pQueue[pIdx]); else stopPlay();
+  },ms);
+}
+
+async function playClip(idx){ selectClip(idx); stopPlay();playing=true;pQueue=[idx];pIdx=0;await playSingle(idx);}
+async function playAll(){
+  stopPlay();playing=true;
+  // 選択クリップがあればそこから、なければ先頭から、最後まで連続再生
+  const start=(selIdx>=0 && selIdx<clips.length)?selIdx:0;
+  pQueue=clips.map((_,i)=>i).filter(i=>i>=start);
+  pIdx=0;
+  if(pQueue.length) await playSingle(pQueue[0]);
+}
+// クリップ選択（全再生の開始位置をハイライト）
+function selectClip(idx){
+  selIdx=idx;
+  document.querySelectorAll('.ci').forEach(el=>el.classList.remove('sel'));
+  const c=clips[idx]; if(c){ const el=document.getElementById('ci-'+c.id); if(el) el.classList.add('sel'); }
+}
+function stopPlay(){
+  playing=false;
+  if(pTimer){clearTimeout(pTimer);pTimer=null;}
+  pv.onended=null; pv.pause(); pv.src='';
+  // extractCacheは保持（再生のたびに切り出さないため）
+  hlPlay(undefined,false);
+  document.getElementById('pvlb').textContent='-';
+  document.getElementById('pvix').textContent='';
+  document.getElementById('pvslb').classList.remove('on');
+  document.getElementById('spB').style.display='none';
+  document.getElementById('paB').style.display='';
+}
+function prevClip(){if(!playing||pIdx<=0) return; if(pTimer){clearTimeout(pTimer);pTimer=null;} pIdx--; playSingle(pQueue[pIdx]);}
+function nextClip(){if(!playing) return; if(pTimer){clearTimeout(pTimer);pTimer=null;} pIdx++; if(pIdx<pQueue.length) playSingle(pQueue[pIdx]); else stopPlay();}
+function pvPause(){
+  if(pv.paused){pv.play();document.getElementById('pvpaus').textContent='⏸';}
+  else{pv.pause();document.getElementById('pvpaus').textContent='▶';}
+}
+pv.addEventListener('pause',()=>document.getElementById('pvpaus').textContent='▶');
+pv.addEventListener('play', ()=>document.getElementById('pvpaus').textContent='⏸');
+
+function pvToggleSlow(){
+  pvSlow=!pvSlow;
+  pv.playbackRate=pvSlow?0.5:1.0;
+  document.getElementById('pvslw').classList.toggle('on',pvSlow);
+  document.getElementById('pvslb').classList.toggle('on',pvSlow);
+}
+
+// ── タイムライン ──
+let tlZoomFactor=1;  // タイムラインの拡大倍率
+function tlZoom(dir){
+  if(dir>0) tlZoomFactor=Math.min(6, tlZoomFactor*1.5);
+  else tlZoomFactor=Math.max(1, tlZoomFactor/1.5);
+  renderTL();
+}
+function renderTL(){
+  const tl=document.getElementById('tlt'); tl.innerHTML='';
+  const tot=clips.reduce((s,c)=>s+c.duration,0);
+  const baseW=700*tlZoomFactor;
+  clips.forEach((c,i)=>{
+    const d=document.createElement('div');
+    d.className='tlc'; d.id=`tl-${c.id}`;
+    const ratio=tot>0?c.duration/tot:1/clips.length;
+    d.style.width=Math.max(36,ratio*baseW)+'px';
+    d.style.background=COLORS[i%COLORS.length];
+    d.innerHTML=`<span>${c.num!==undefined?c.num:(i+1)}<br>${ft(c.duration)}${(c.slow||(c.slowRegions&&c.slowRegions.length))?'🐢':''}</span>`;
+    d.onclick=()=>playClip(i);
+    tl.appendChild(d);
+  });
+}
+function updDur(){
+  const tot=clips.reduce((s,c)=>s+c.duration,0);
+  const rem=TARGET-tot;
+  document.getElementById('totDur').textContent=ft(tot);
+  document.getElementById('remDisp').textContent=rem>=0?ft(rem):'-'+ft(-rem);
+  document.getElementById('remDisp').style.color=rem<0?'#e94560':'#f0a500';
+  document.getElementById('tlTot').textContent=`合計: ${ft(tot)} / 目標: ${ft(TARGET)}`;
+}
+
+// ── トリミング ＆ 可変スロー ──
+// trIn/trOut/スロー区間はすべて「セグメント先頭=0」基準の秒で扱う
+let trId=null, trIn=0, trOut=0, trDur=0, trDrag=null;
+let trSegStart=0;                // このセグメントの録画開始からの絶対秒
+let trSlow=[];                   // [{start,end}] セグメント相対秒
+let slowPendingStart=null;       // スロー開始点の一時保持
+let trZoom=1;                    // トリムバーの時間軸ズーム倍率
+const TRIM_FRAME=1/30;           // 1コマ＝1/30秒（微調整用）
+const trv=document.getElementById('trv');
+const trbar=document.getElementById('trbar');
+
+async function openTrim(clipId){
+  const clip=clips.find(c=>c.id===clipId); if(!clip) return;
+  trId=clipId;
+  document.getElementById('pvld').classList.add('on');
+  document.getElementById('pvldmsg').textContent='セグメント映像を準備中...';
+  // 所属セグメント＋前後を連結した広域プレビューを読み込む → IN/OUTを境界の外まで広げられる
+  const r=await ipcRenderer.invoke('extract-range', { segIndex: clip.segIndex, before:1, after:2 });
+  document.getElementById('pvld').classList.remove('on');
+  if(!r.success) return alert('映像を読み込めませんでした');
+
+  trSegStart = (r.segStartSec!==undefined) ? r.segStartSec : clip.segStartSec;
+  trv.src=`file://${r.path}?t=${Date.now()}`;
+  trv.load();
+  await new Promise(res=>{let d=false;const f=()=>{if(!d){d=true;res();}};trv.addEventListener('loadedmetadata',f,{once:true});setTimeout(f,4000);});
+  trDur = trv.duration || 20;
+
+  // クリップの現在のIN/OUTをセグメント相対に変換
+  trIn  = Math.max(0, clip.inSec  - trSegStart);
+  trOut = Math.min(trDur, clip.outSec - trSegStart);
+  if(trOut<=trIn) trOut=Math.min(trDur, trIn+1);
+
+  // 既存スロー区間（クリップ相対）をセグメント相対に変換して復元
+  trSlow = Array.isArray(clip.slowRegions)
+    ? clip.slowRegions.map(rg=>({start:rg.start+trIn, end:rg.end+trIn}))
+    : [];
+  slowPendingStart=null;
+  // スロー倍率の復元
+  if(clip.slowRate) document.getElementById('slowRate').value=String(clip.slowRate);
+
+  trv.currentTime=trIn;
+  trZoom=1;  // ズームをリセット
+  // 先にモーダルを表示してから位置計算（非表示=幅0だとハンドル位置が0になるため）
+  document.getElementById('trm').classList.add('on');
+  // レイアウト確定後に描画（2フレーム待ってから）
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
+    updTrimBar(); updTrimInfo(); renderSlow();
+  }));
+  // 念のため少し遅れても再計算
+  setTimeout(()=>{ updTrimBar(); renderSlow(); }, 120);
+}
+function closeTrim(){document.getElementById('trm').classList.remove('on');trv.pause();trv.src='';trId=null;}
+
+function updTrimBar(){
+  // ズーム適用：バー幅 = 表示領域幅 × ズーム倍率（横スクロールで細かく選択）
+  const wrap=document.getElementById('trbarwrap');
+  const baseW=(wrap && wrap.clientWidth) ? wrap.clientWidth : 600;
+  const w=baseW*trZoom;
+  trbar.style.width=w+'px';
+  const ip=trDur>0?trIn/trDur:0, op=trDur>0?trOut/trDur:1;
+  document.getElementById('trhIn').style.left=(ip*w)+'px';
+  document.getElementById('trhOut').style.left=(op*w)+'px';
+  document.getElementById('trrange').style.left=(ip*w)+'px';
+  document.getElementById('trrange').style.width=((op-ip)*w)+'px';
+  // クリップ範囲の薄表示（=IN/OUTと同じだが視覚補助）
+  document.getElementById('trclip').style.left=(ip*w)+'px';
+  document.getElementById('trclip').style.width=((op-ip)*w)+'px';
+  document.getElementById('lbIn').textContent=ft(trIn);
+  document.getElementById('lbOut').textContent=ft(trOut);
+  // 再生ヘッドも更新
+  const ph=document.getElementById('trph');
+  if(ph && trDur>0) ph.style.left=((trv.currentTime/trDur)*w)+'px';
+}
+function updTrimInfo(){document.getElementById('tcif').textContent=`IN:${ft(trIn)} OUT:${ft(trOut)} (${(trOut-trIn).toFixed(1)}s)`;}
+
+// 時間軸ズーム（Z=拡大, X=縮小）。注目点（再生ヘッド）が見える位置にスクロール。
+function trimZoom(dir){
+  const old=trZoom;
+  if(dir>0) trZoom=Math.min(8, trZoom*1.6);
+  else trZoom=Math.max(1, trZoom/1.6);
+  if(trZoom===old) return;
+  updTrimBar(); renderSlow();
+  // 再生ヘッド（または IN）が中央に来るようスクロール
+  const wrap=document.getElementById('trbarwrap');
+  if(wrap){
+    const focus = (trDur>0) ? (trv.currentTime/trDur) : (trIn/trDur);
+    const target = focus*trbar.clientWidth - wrap.clientWidth/2;
+    wrap.scrollLeft = Math.max(0, target);
+  }
+}
+
+// IN/OUT点へジャンプ（再生位置を移動）
+function trimJumpIn(){ trv.currentTime=trIn; scrollToPlayhead(); }
+function trimJumpOut(){ trv.currentTime=Math.max(0,trOut-0.05); scrollToPlayhead(); }
+
+// IN/OUTを1コマ単位で送る/戻す（which='in'|'out', dir=+1|-1）
+function trimNudge(which, dir){
+  const step=TRIM_FRAME*dir;
+  if(which==='in'){
+    trIn=Math.max(0, Math.min(trOut-TRIM_FRAME, trIn+step));
+    trv.currentTime=trIn;
+  } else {
+    trOut=Math.max(trIn+TRIM_FRAME, Math.min(trDur, trOut+step));
+    trv.currentTime=Math.max(0,trOut-0.05);
+  }
+  updTrimBar(); updTrimInfo(); scrollToPlayhead();
+}
+
+function scrollToPlayhead(){
+  const wrap=document.getElementById('trbarwrap');
+  if(!wrap||trDur<=0) return;
+  const x=(trv.currentTime/trDur)*trbar.clientWidth;
+  if(x < wrap.scrollLeft+20 || x > wrap.scrollLeft+wrap.clientWidth-20){
+    wrap.scrollLeft=Math.max(0, x - wrap.clientWidth/2);
+  }
+}
+
+// スロー区間の描画
+function renderSlow(){
+  const layer=document.getElementById('trslowlayer');
+  layer.innerHTML='';
+  const w=trbar.clientWidth;
+  trSlow.forEach(rg=>{
+    const d=document.createElement('div');
+    d.className='slowseg';
+    d.style.left=(rg.start/trDur*w)+'px';
+    d.style.width=((rg.end-rg.start)/trDur*w)+'px';
+    layer.appendChild(d);
+  });
+  // 情報表示
+  if(trSlow.length===0){
+    document.getElementById('slowInfo').textContent = slowPendingStart!==null
+      ? `スロー開始:${ft(slowPendingStart)} → 終了点を指定` : '区間:なし';
+  } else {
+    const total=trSlow.reduce((s,r)=>s+(r.end-r.start),0);
+    document.getElementById('slowInfo').textContent=`スロー${trSlow.length}区間 計${total.toFixed(1)}s`;
+  }
+}
+
+// スロー開始点を現在の再生位置に設定
+function slowSetStart(){
+  slowPendingStart=Math.max(trIn, Math.min(trv.currentTime, trOut));
+  renderSlow();
+}
+// スロー終了点を設定して区間を確定
+function slowSetEnd(){
+  if(slowPendingStart===null) return alert('先に「スロー開始点」を指定してください');
+  let end=Math.max(trIn, Math.min(trv.currentTime, trOut));
+  let start=slowPendingStart;
+  if(end<start){ [start,end]=[end,start]; }
+  if(end-start<0.2) return alert('区間が短すぎます');
+  trSlow.push({start,end});
+  trSlow.sort((a,b)=>a.start-b.start);
+  slowPendingStart=null;
+  renderSlow();
+}
+function slowClear(){ trSlow=[]; slowPendingStart=null; renderSlow(); }
+
+document.getElementById('trhIn').addEventListener('mousedown',e=>{trDrag='in';e.preventDefault();});
+document.getElementById('trhOut').addEventListener('mousedown',e=>{trDrag='out';e.preventDefault();});
+document.addEventListener('mousemove',e=>{
+  if(!trDrag) return;
+  const rect=trbar.getBoundingClientRect();
+  const pct=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  const sec=pct*trDur;
+  if(trDrag==='in') trIn=Math.max(0, Math.min(sec,trOut-0.3));
+  else              trOut=Math.min(trDur, Math.max(sec,trIn+0.3));
+  trv.currentTime=trDrag==='in'?trIn:trOut;
+  updTrimBar(); updTrimInfo(); renderSlow();
+});
+document.addEventListener('mouseup',()=>{trDrag=null;});
+trbar.addEventListener('click',e=>{
+  if(trDrag) return;
+  const rect=trbar.getBoundingClientRect();
+  trv.currentTime=Math.max(0,Math.min(trDur,(e.clientX-rect.left)/rect.width*trDur));
+});
+trv.addEventListener('timeupdate',()=>{
+  const pct=trDur>0?trv.currentTime/trDur:0;
+  document.getElementById('trph').style.left=(trbar.clientWidth*Math.max(0,Math.min(1,pct)))+'px';
+  document.getElementById('trvt').textContent=ft(trv.currentTime);
+  if(trv.currentTime>=trOut) trv.pause();
+});
+function trimPlay(){
+  if(trv.paused){if(trv.currentTime<trIn||trv.currentTime>=trOut) trv.currentTime=trIn; trv.play(); document.getElementById('tcpl').textContent='■ 停止';}
+  else{trv.pause();document.getElementById('tcpl').textContent='▶ 再生';}
+}
+trv.addEventListener('pause',()=>document.getElementById('tcpl').textContent='▶ 再生');
+trv.addEventListener('play', ()=>document.getElementById('tcpl').textContent='■ 停止');
+function trimSetIn(){trIn=Math.max(0,Math.min(trv.currentTime,trOut-0.3));updTrimBar();updTrimInfo();renderSlow();}
+function trimSetOut(){trOut=Math.max(trIn+0.3,Math.min(trv.currentTime,trDur));updTrimBar();updTrimInfo();renderSlow();}
+
+function applyTrim(){
+  const c=clips.find(c=>c.id===trId); if(!c) return;
+  // セグメント相対 → 録画絶対秒
+  c.inSec  = trSegStart + trIn;
+  c.outSec = trSegStart + trOut;
+  c.duration = trOut - trIn;
+
+  // スロー区間をクリップ相対(0=新IN)に変換し、範囲内にクランプ
+  c.slowRegions = trSlow
+    .map(rg=>({start: rg.start - trIn, end: rg.end - trIn}))
+    .map(rg=>({start: Math.max(0, rg.start), end: Math.min(c.duration, rg.end)}))
+    .filter(rg=>rg.end>rg.start);
+  c.slowRate = parseFloat(document.getElementById('slowRate').value) || 2;
+  // スロー区間があれば旧式の全体スローフラグは解除
+  c.slow = (c.slowRegions.length>0) ? false : c.slow;
+
+  // 新INが属するセグメントに参照を更新（次回トリムを正しく中心化するため）
+  let ns=null;
+  for(let i=segLog.length-1;i>=0;i--){ if(segLog[i].startSec<=c.inSec){ ns=segLog[i]; break; } }
+  if(ns){ c.segIndex=ns.index; c.segStartSec=ns.startSec; if(ns.path) c.segPath=ns.path; }
+
+  ipcRenderer.invoke('delete-preview',c.id);
+  delete extractCache[c.id];
+  delete extractInflight[c.id];
+  closeTrim(); renderClips();
+}
+
+// ── REC保存先選択 ──
+async function chooseFolder(){
+  if(isRec) return alert('録画中は変更できません。STOPしてから選択してください。');
+  const r=await ipcRenderer.invoke('choose-base-dir');
+  if(r.canceled) return;
+  alert('録画の保存先を変更しました:\n'+r.baseDir);
+}
+
+// ── 書き出し ──
+async function doExport(){
+  if(clips.length===0) return alert('クリップがありません');
+  const btn=document.getElementById('exportBtn');
+  btn.textContent='⏳ 書き出し中...'; btn.disabled=true;
+  let r;
+  try {
+    r=await ipcRenderer.invoke('export-mp4',clips);
+  } catch(e) {
+    btn.textContent='📤 MP4書き出し'; btn.disabled=false;
+    return alert('❌ エラー: '+e.message);
+  }
+  btn.textContent='📤 MP4書き出し'; btn.disabled=false;
+  if(r.canceled) return; // ユーザーがキャンセル
+  if(r.success) alert('✅ 書き出し完了！\n'+r.path);
+  else alert('❌ 失敗: '+(r.error||'不明なエラー'));
+}
+
+// FCPXML書き出し（DaVinci Resolve向け）
+async function doExportFcpxml(){
+  if(clips.length===0) return alert('クリップがありません');
+  if(!confirm(`${clips.length}クリップを FCPXML（DaVinci Resolve向け）で書き出します。\n各クリップのMP4と digest.fcpxml がフォルダに作られます。\n\n続けますか？`)) return;
+  const btn=document.getElementById('fcpxmlBtn');
+  const label='🎬 FCPXML';
+  btn.textContent='⏳ 書き出し中...'; btn.disabled=true;
+  let r;
+  try {
+    r=await ipcRenderer.invoke('export-fcpxml',clips);
+  } catch(e) {
+    btn.textContent=label; btn.disabled=false;
+    return alert('❌ エラー: '+e.message);
+  }
+  btn.textContent=label; btn.disabled=false;
+  if(r.canceled) return;
+  if(r.success) alert(`✅ FCPXML書き出し完了！（${r.clips}クリップ）\n${r.path}\n\nDaVinci Resolve:\n  ファイル → 読み込み → タイムライン → 「.fcpxml」を選択`);
+  else alert('❌ 失敗: '+(r.error||'不明なエラー'));
+}
+
+// Premiere用XML書き出し（FCP7 / xmeml形式）
+async function doExportPremiereXml(){
+  if(clips.length===0) return alert('クリップがありません');
+  if(!confirm(`${clips.length}クリップを Premiere Pro向けXML（FCP7形式）で書き出します。\n各クリップのMP4と digest_premiere.xml がフォルダに作られます。\n\n続けますか？`)) return;
+  const btn=document.getElementById('prxmlBtn');
+  const label='🟣 Pr XML';
+  btn.textContent='⏳ 書き出し中...'; btn.disabled=true;
+  let r;
+  try {
+    r=await ipcRenderer.invoke('export-fcp7xml',clips);
+  } catch(e) {
+    btn.textContent=label; btn.disabled=false;
+    return alert('❌ エラー: '+e.message);
+  }
+  btn.textContent=label; btn.disabled=false;
+  if(r.canceled) return;
+  if(r.success) alert(`✅ Premiere用XML書き出し完了！（${r.clips}クリップ）\n${r.path}\n\nPremiere Pro:\n  ファイル → 読み込み → 「digest_premiere.xml」を選択\n  ※読み込み後、シーケンスがプロジェクトに追加されます`);
+  else alert('❌ 失敗: '+(r.error||'不明なエラー'));
+}
+
+function ft(s){
+  s=Math.max(0,Math.floor(s||0));
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),sec=s%60;
+  if(h>0) return `${h}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  return `${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+}
+
+// ── キーボードショートカット ──
+// I=IN, O=OUT（登録）, Space=プレビュー再生/停止
+document.addEventListener('keydown', (e)=>{
+  // 入力欄での入力中は無効化
+  const tag=(e.target.tagName||'').toLowerCase();
+  if(tag==='input'||tag==='textarea'||e.target.isContentEditable) return;
+  // トリム画面が開いている時はトリム側の操作を優先（誤爆防止のためIN/OUTは無効）
+  const trimOpen=document.getElementById('trm').classList.contains('on');
+
+  const k=e.key.toLowerCase();
+  if(trimOpen){
+    // トリム画面のショートカット
+    if(k==='z'){ e.preventDefault(); trimZoom(-1); return; }
+    if(k==='x'){ e.preventDefault(); trimZoom(1); return; }
+    if(e.code==='Space'){ e.preventDefault(); trimPlay(); return; }
+    if(e.key==='ArrowLeft'){ e.preventDefault(); trimNudge(e.shiftKey?'out':'in', -1); return; }
+    if(e.key==='ArrowRight'){ e.preventDefault(); trimNudge(e.shiftKey?'out':'in', 1); return; }
+    return;
+  }
+  if(k==='r'){
+    e.preventDefault(); toggleRec();
+  } else if(k==='i'){
+    e.preventDefault(); setIn();
+  } else if(k==='o'){
+    e.preventDefault(); setOut();
+  } else if(k==='z'){
+    e.preventDefault(); tlZoom(-1);
+  } else if(k==='x'){
+    e.preventDefault(); tlZoom(1);
+  } else if(e.code==='Space'){
+    // スペースで全再生（選択クリップから）。再生中なら一時停止/再開。
+    e.preventDefault();
+    if(playing){ pvPause(); }
+    else { playAll(); }
+  }
+});
 </script>
 </body>
 </html>
