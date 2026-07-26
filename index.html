@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#12172B">
+<title>動画を投稿する</title>
+<!--
+  Event Digest / 投稿ページ (Component A)
+  BUILD: 2026-07-26
+  ★ 下の APP_CONFIG だけ書き換えれば動きます。
+-->
+<style>
+  :root{
+    --ink:#12172B;
+    --ink-2:#1B2240;
+    --ink-3:#262E52;
+    --line:rgba(255,255,255,.10);
+    --amber:#F2B138;
+    --amber-soft:#FFD98A;
+    --light:#E9EBF3;
+    --muted:#8990AE;
+    --good:#5FC793;
+    --bad:#FF7A6B;
+    --r:16px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--ink);
+    background-image:radial-gradient(120% 60% at 50% -10%, rgba(242,177,56,.16) 0%, rgba(242,177,56,0) 60%);
+    background-repeat:no-repeat;
+    color:var(--light);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic Medium",sans-serif;
+    line-height:1.7;
+    min-height:100vh;
+    min-height:100dvh;
+    padding:0 20px calc(40px + env(safe-area-inset-bottom));
+  }
+  .wrap{max-width:460px;margin:0 auto}
+
+  /* ---- header ---- */
+  .eyebrow{
+    margin:36px 0 0;font-size:11px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--amber);font-weight:700;
+  }
+  h1{
+    margin:10px 0 0;font-size:31px;line-height:1.35;font-weight:800;letter-spacing:-.01em;
+  }
+  h1 .accent{color:var(--amber)}
+  .lead{margin:14px 0 0;color:var(--muted);font-size:14px}
+
+  /* ---- signature: upload dial ---- */
+  .dial{
+    position:relative;width:196px;height:196px;margin:34px auto 0;
+    display:block;border:0;padding:0;background:none;cursor:pointer;
+  }
+  .dial svg{position:absolute;inset:0;transform:rotate(-90deg)}
+  .dial .track{fill:none;stroke:var(--ink-3);stroke-width:6}
+  .dial .fill{
+    fill:none;stroke:var(--amber);stroke-width:6;stroke-linecap:round;
+    stroke-dasharray:590;stroke-dashoffset:590;
+    transition:stroke-dashoffset .25s linear;
+  }
+  .dial-face{
+    position:absolute;inset:16px;border-radius:50%;
+    background:var(--ink-2);border:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:6px;padding:16px;text-align:center;
+  }
+  .dial-glyph{font-size:30px;line-height:1}
+  .dial-label{font-size:14px;font-weight:700;color:var(--light)}
+  .dial-sub{font-size:11px;color:var(--muted);word-break:break-all;line-height:1.5}
+  .dial-pct{font-size:34px;font-weight:800;color:var(--amber);letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+  .dial:disabled{cursor:default;opacity:.55}
+  .dial.is-busy{cursor:progress}
+
+  /* ---- form ---- */
+  .field{margin-top:26px}
+  label.lbl{display:block;font-size:12px;font-weight:700;color:var(--muted);margin-bottom:7px;letter-spacing:.04em}
+  input[type=text]{
+    width:100%;padding:14px 15px;font-size:16px;color:var(--light);
+    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
+    font-family:inherit;
+  }
+  input[type=text]:focus{outline:2px solid var(--amber);outline-offset:1px;border-color:transparent}
+  .hint{margin:7px 0 0;font-size:11px;color:var(--muted)}
+
+  .consent{
+    display:flex;gap:11px;align-items:flex-start;margin-top:20px;
+    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;padding:14px;
+    cursor:pointer;
+  }
+  .consent input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--amber);flex:none}
+  .consent span{font-size:13px;line-height:1.6}
+
+  .btn{
+    width:100%;margin-top:18px;padding:17px;border:0;border-radius:13px;
+    background:var(--amber);color:#241802;font-size:16px;font-weight:800;
+    font-family:inherit;cursor:pointer;letter-spacing:.02em;
+  }
+  .btn:disabled{background:var(--ink-3);color:var(--muted);cursor:default}
+  .btn:focus-visible{outline:2px solid var(--amber-soft);outline-offset:2px}
+
+  /* ---- posted list ---- */
+  .sec-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin:34px 0 12px;padding-top:22px;border-top:1px solid var(--line);
+  }
+  .sec-head h2{margin:0;font-size:13px;font-weight:700;letter-spacing:.06em;color:var(--muted)}
+  .count{font-size:13px;font-weight:800;color:var(--amber);font-variant-numeric:tabular-nums}
+  .item{
+    display:flex;align-items:center;gap:12px;
+    background:var(--ink-2);border:1px solid var(--line);border-radius:12px;
+    padding:13px 14px;margin-bottom:9px;
+  }
+  .item-dot{width:8px;height:8px;border-radius:50%;background:var(--good);flex:none}
+  .item-body{flex:1;min-width:0}
+  .item-name{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .item-meta{font-size:11px;color:var(--muted)}
+  .item-del{
+    background:none;border:1px solid var(--line);color:var(--muted);
+    border-radius:9px;padding:7px 11px;font-size:12px;cursor:pointer;font-family:inherit;flex:none;
+  }
+  .empty{color:var(--muted);font-size:13px;padding:4px 0 2px}
+
+  /* ---- notes ---- */
+  details{margin-top:30px;border-top:1px solid var(--line);padding-top:18px}
+  summary{font-size:12px;color:var(--muted);cursor:pointer;font-weight:700;letter-spacing:.04em}
+  details ul{margin:14px 0 0;padding-left:18px}
+  details li{font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.65}
+
+  /* ---- states ---- */
+  .msg{margin-top:16px;padding:13px 14px;border-radius:12px;font-size:13px;display:none;line-height:1.6}
+  .msg.show{display:block}
+  .msg.ok{background:rgba(95,199,147,.12);color:var(--good);border:1px solid rgba(95,199,147,.3)}
+  .msg.err{background:rgba(255,122,107,.12);color:var(--bad);border:1px solid rgba(255,122,107,.3)}
+  .msg.warn{background:rgba(242,177,56,.10);color:var(--amber-soft);border:1px solid rgba(242,177,56,.28)}
+
+  .screen{display:none;padding:80px 0;text-align:center}
+  .screen.show{display:block}
+  .screen h2{font-size:23px;margin:0 0 12px}
+  .screen p{color:var(--muted);font-size:14px;margin:0}
+  #app.hidden,#loading.hidden{display:none}
+  #loading{padding:100px 0;text-align:center;color:var(--muted);font-size:13px}
+
+  @media (prefers-reduced-motion:reduce){
+    .dial .fill{transition:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="loading">読み込んでいます…</div>
+
+  <!-- 受付終了 -->
+  <div class="screen" id="closed">
+    <h2 id="closedTitle"></h2>
+    <p id="closedBody"></p>
+  </div>
+
+  <!-- 本体 -->
+  <main id="app" class="hidden">
+    <p class="eyebrow" id="eventName"></p>
+    <h1 id="heading"></h1>
+    <p class="lead" id="lead"></p>
+
+    <input type="file" id="file" accept="video/*" hidden>
+
+    <button class="dial" id="dial" type="button">
+      <svg viewBox="0 0 196 196" aria-hidden="true">
+        <circle class="track" cx="98" cy="98" r="94"></circle>
+        <circle class="fill" id="ring" cx="98" cy="98" r="94"></circle>
+      </svg>
+      <span class="dial-face" id="dialFace">
+        <span class="dial-glyph">＋</span>
+        <span class="dial-label">動画を選ぶ</span>
+        <span class="dial-sub">カメラロールから</span>
+      </span>
+    </button>
+
+    <div class="field">
+      <label class="lbl" for="nick">おなまえ（ニックネーム可）</label>
+      <input type="text" id="nick" maxlength="20" placeholder="例：たけし" autocomplete="nickname">
+      <p class="hint">エンドロールに表示されることがあります。本名でなくて構いません。</p>
+    </div>
+
+    <label class="consent">
+      <input type="checkbox" id="consent">
+      <span id="consentText"></span>
+    </label>
+
+    <button class="btn" id="send" disabled>投稿する</button>
+
+    <div class="msg" id="msg"></div>
+
+    <div class="sec-head">
+      <h2>投稿済みの動画</h2>
+      <span class="count" id="count">0 / 3</span>
+    </div>
+    <div id="list"><p class="empty">まだ投稿はありません。</p></div>
+
+    <details>
+      <summary>個人情報の取り扱いについて</summary>
+      <ul id="notes"></ul>
+    </details>
+  </main>
+</div>
+
+<script type="module">
+// ============================================================
+// ★ APP_CONFIG ── ここだけ書き換えてください
+// ============================================================
+const APP_CONFIG = {
+  eventId: "test-001",
+
+  // Firebase コンソール → プロジェクトの設定 → マイアプリ（ウェブ）の設定値
+  firebase: {
+    apiKey:            "★ここに貼る",
+    authDomain:        "event-digest-e9565.firebaseapp.com",
+    databaseURL:       "https://event-digest-e9565-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId:         "event-digest-e9565",
+    storageBucket:     "event-digest-e9565.firebasestorage.app",
+    messagingSenderId: "★ここに貼る",
+    appId:             "★ここに貼る"
+  },
+
+  maxFiles: 3,
+  maxFileSizeMB: 2048,       // 安全弁。通常の投稿では発火しません
+  largeFileWarnMB: 300,      // これを超えたら「時間がかかります」と表示
+
+  texts: {
+    eventName: "AVA SUMMER PARTY 2026",
+    heading: '今日のいちばんを、<span class="accent">1本</span>。',
+    lead: "本日撮影された動画の中から、いちばん印象に残った1本をご投稿ください。エンディング映像の素材として使わせていただきます。",
+    consent: "投稿した動画が、本日のエンディング映像の制作に使用されることに同意します。",
+    notes: [
+      "お預かりした動画は、本イベントのエンディング映像制作を目的として使用いたします。",
+      "動画に他の参加者が映り込んでいる場合は、その方の了解が得られる範囲でのご投稿をお願いいたします。",
+      "元の動画素材は、イベント終了後30日以内に削除いたします。",
+      "完成した映像の当日上映以降の取り扱い（社内での共有・記録保存・広報活動等）につきましては、主催者の判断によるものとします。",
+      "ご入力いただいたニックネームは、映像のエンドロールに表示される場合があります。"
+    ],
+    closedTitle: "受付は終了しました",
+    closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。"
+  }
+};
+
+// ============================================================
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getDatabase, ref as dbRef, set, remove, get, onValue, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+import { getStorage, ref as stRef, uploadBytesResumable, deleteObject }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
+
+const T = APP_CONFIG.texts;
+const EV = APP_CONFIG.eventId;
+const MAX_BYTES = APP_CONFIG.maxFileSizeMB * 1024 * 1024;
+const WARN_BYTES = APP_CONFIG.largeFileWarnMB * 1024 * 1024;
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  loading:$("loading"), app:$("app"), closed:$("closed"),
+  eventName:$("eventName"), heading:$("heading"), lead:$("lead"),
+  dial:$("dial"), dialFace:$("dialFace"), ring:$("ring"),
+  file:$("file"), nick:$("nick"), consent:$("consent"), consentText:$("consentText"),
+  send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
+  closedTitle:$("closedTitle"), closedBody:$("closedBody")
+};
+
+// ---- 文言の流し込み ----
+el.eventName.textContent = T.eventName;
+el.heading.innerHTML = T.heading;
+el.lead.textContent = T.lead;
+el.consentText.textContent = T.consent;
+el.closedTitle.textContent = T.closedTitle;
+el.closedBody.textContent = T.closedBody;
+el.notes.innerHTML = T.notes.map((n) => `<li></li>`).join("");
+[...el.notes.children].forEach((li, i) => { li.textContent = T.notes[i]; });
+
+// ---- 状態 ----
+let uid = null;
+let db = null, storage = null;
+let picked = null;
+let uploading = false;
+let mine = {};      // uploadId -> { fileName, storagePath, at }
+let isClosed = false;
+
+// ---- ユーティリティ ----
+function mb(bytes){
+  if (bytes >= 1024*1024*1024) return (bytes/1024/1024/1024).toFixed(1) + " GB";
+  return Math.round(bytes/1024/1024) + " MB";
+}
+function showMsg(text, kind){
+  el.msg.textContent = text;
+  el.msg.className = "msg show " + (kind || "warn");
+}
+function clearMsg(){ el.msg.className = "msg"; }
+function setRing(pct){
+  const C = 590;
+  el.ring.style.strokeDashoffset = String(C - C * Math.max(0, Math.min(1, pct)));
+}
+function faceIdle(){
+  el.dialFace.innerHTML =
+    '<span class="dial-glyph">＋</span>' +
+    '<span class="dial-label">動画を選ぶ</span>' +
+    '<span class="dial-sub">カメラロールから</span>';
+  setRing(0);
+}
+function facePicked(name, size){
+  el.dialFace.innerHTML = '<span class="dial-glyph">🎬</span>' +
+    '<span class="dial-label">選択中</span><span class="dial-sub"></span>';
+  el.dialFace.querySelector(".dial-sub").textContent = name + " / " + mb(size);
+  setRing(0);
+}
+function faceProgress(pct){
+  if (!el.dialFace.querySelector(".dial-pct")) {
+    el.dialFace.innerHTML = '<span class="dial-pct">0%</span><span class="dial-sub">送信中…</span>';
+  }
+  el.dialFace.querySelector(".dial-pct").textContent = Math.round(pct*100) + "%";
+  setRing(pct);
+}
+function facePreparing(){
+  el.dialFace.innerHTML = '<span class="dial-glyph">⋯</span><span class="dial-label">準備中</span>' +
+    '<span class="dial-sub">そのままお待ちください</span>';
+}
+function faceDone(){
+  el.dialFace.innerHTML = '<span class="dial-glyph">✓</span><span class="dial-label">送信できました</span>' +
+    '<span class="dial-sub">ありがとうございます</span>';
+  setRing(1);
+}
+
+function refreshSendButton(){
+  const n = Object.keys(mine).length;
+  el.send.disabled = !(picked && el.consent.checked && el.nick.value.trim() && !uploading
+                       && n < APP_CONFIG.maxFiles && !isClosed);
+}
+
+function renderList(){
+  const ids = Object.keys(mine).sort();
+  el.count.textContent = ids.length + " / " + APP_CONFIG.maxFiles;
+  if (ids.length === 0){
+    el.list.innerHTML = '<p class="empty">まだ投稿はありません。</p>';
+    refreshSendButton();
+    return;
+  }
+  el.list.innerHTML = "";
+  ids.forEach((id) => {
+    const it = mine[id];
+    const row = document.createElement("div");
+    row.className = "item";
+    row.innerHTML = '<span class="item-dot"></span><div class="item-body">' +
+      '<div class="item-name"></div><div class="item-meta"></div></div>' +
+      '<button class="item-del" type="button">取り消す</button>';
+    row.querySelector(".item-name").textContent = it.fileName;
+    row.querySelector(".item-meta").textContent = mb(it.bytes || 0) + " ・ 受付済み";
+    row.querySelector(".item-del").addEventListener("click", () => removeUpload(id));
+    el.list.appendChild(row);
+  });
+  refreshSendButton();
+}
+
+// ---- 投稿の取り消し ----
+async function removeUpload(id){
+  if (uploading) return;
+  if (!confirm("この投稿を取り消しますか？")) return;
+  const it = mine[id];
+  try {
+    await remove(dbRef(db, `events/${EV}/uploads/${id}`));
+    await remove(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`));
+    try { await deleteObject(stRef(storage, it.storagePath)); } catch(e){ /* 既に無い場合は無視 */ }
+    delete mine[id];
+    renderList();
+    showMsg("投稿を取り消しました。", "warn");
+  } catch (e){
+    showMsg("取り消しに失敗しました。通信環境をご確認のうえ、もう一度お試しください。", "err");
+  }
+}
+
+// ---- ファイル選択 ----
+el.dial.addEventListener("click", () => {
+  if (uploading || isClosed) return;
+  if (Object.keys(mine).length >= APP_CONFIG.maxFiles){
+    showMsg(`投稿は${APP_CONFIG.maxFiles}本までです。入れ替える場合は、下の一覧から取り消してください。`, "warn");
+    return;
+  }
+  el.file.click();
+});
+
+el.file.addEventListener("change", () => {
+  const f = el.file.files && el.file.files[0];
+  if (!f) return;
+  clearMsg();
+  if (f.size > MAX_BYTES){
+    picked = null; faceIdle();
+    showMsg(`ファイルが大きすぎます（${mb(f.size)}）。${APP_CONFIG.maxFileSizeMB} MB までの動画をお選びください。`, "err");
+    refreshSendButton();
+    return;
+  }
+  picked = f;
+  facePicked(f.name, f.size);
+  if (f.size > WARN_BYTES){
+    showMsg(`${mb(f.size)}あります。送信に数分かかることがあります。完了表示が出るまで、この画面を開いたままお待ちください。`, "warn");
+  }
+  refreshSendButton();
+});
+
+el.nick.addEventListener("input", () => {
+  localStorage.setItem("evdigest_nick", el.nick.value);
+  refreshSendButton();
+});
+el.consent.addEventListener("change", refreshSendButton);
+
+// ---- 送信 ----
+el.send.addEventListener("click", () => {
+  if (!picked || uploading) return;
+  uploading = true;
+  el.send.disabled = true;
+  el.dial.classList.add("is-busy");
+  clearMsg();
+  facePreparing();
+
+  const f = picked;
+  const id = `${uid}_${Date.now()}`;
+  const ext = (f.name.match(/\.[A-Za-z0-9]+$/) || [".mp4"])[0];
+  const storagePath = `events/${EV}/uploads/${uid}/${id}${ext}`;
+  const nickname = el.nick.value.trim();
+
+  const task = uploadBytesResumable(
+    stRef(storage, storagePath), f,
+    { contentType: f.type || "video/mp4" }
+  );
+
+  window.onbeforeunload = () => "送信中です。画面を閉じると投稿が取り消されます。";
+
+  task.on("state_changed",
+    (snap) => { faceProgress(snap.bytesTransferred / snap.totalBytes); },
+    (err) => {
+      window.onbeforeunload = null;
+      uploading = false;
+      el.dial.classList.remove("is-busy");
+      facePicked(f.name, f.size);
+      const m = (err && err.code === "storage/unauthorized")
+        ? "この形式またはサイズの動画は受け付けられません。別の動画をお試しください。"
+        : "送信できませんでした。電波の良い場所で、もう一度お試しください。";
+      showMsg(m, "err");
+      refreshSendButton();
+    },
+    async () => {
+      try {
+        const rec = {
+          nickname, uid,
+          fileName: f.name,
+          storagePath,
+          bytes: f.size,
+          uploadedAt: serverTimestamp(),
+          status: "uploaded"
+        };
+        await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
+        await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
+          fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
+        });
+        mine[id] = { fileName: f.name, storagePath, bytes: f.size };
+        faceDone();
+        showMsg("投稿を受け付けました。ありがとうございます。", "ok");
+        picked = null;
+        el.file.value = "";
+        renderList();
+        setTimeout(() => { if (!uploading) faceIdle(); }, 2600);
+      } catch (e){
+        showMsg("受付処理に失敗しました。もう一度お試しください。", "err");
+      } finally {
+        window.onbeforeunload = null;
+        uploading = false;
+        el.dial.classList.remove("is-busy");
+        refreshSendButton();
+      }
+    }
+  );
+});
+
+// ---- 締切の監視 ----
+function watchDeadline(){
+  onValue(dbRef(db, `events/${EV}/config`), (snap) => {
+    const c = snap.val() || {};
+    const over = (c.closed === true) ||
+                 (typeof c.deadline === "number" && Date.now() > c.deadline);
+    isClosed = over;
+    if (over && !uploading){
+      el.app.classList.add("hidden");
+      el.closed.classList.add("show");
+    } else {
+      el.closed.classList.remove("show");
+      el.app.classList.remove("hidden");
+    }
+    refreshSendButton();
+  }, () => { /* config 未設定でも動作します */ });
+}
+
+// ---- 起動 ----
+(async function start(){
+  try {
+    const app = initializeApp(APP_CONFIG.firebase);
+    const auth = getAuth(app);
+    db = getDatabase(app);
+    storage = getStorage(app);
+
+    await signInAnonymously(auth);
+    await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u){ uid = u.uid; res(); } }));
+
+    const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
+    mine = snap.val() || {};
+
+    el.nick.value = localStorage.getItem("evdigest_nick") || "";
+
+    el.loading.classList.add("hidden");
+    el.app.classList.remove("hidden");
+    faceIdle();
+    renderList();
+    watchDeadline();
+  } catch (e){
+    el.loading.textContent = "接続できませんでした。電波の良い場所で、ページを再読み込みしてください。";
+  }
+})();
+</script>
+</body>
+</html>
