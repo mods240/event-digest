@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-27  (受付中イベントを自動取得)
+  BUILD: 2026-07-27b  (受付中イベントを自動取得・表示)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -533,10 +533,19 @@ function watchDeadline(){
     await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u){ uid = u.uid; res(); } }));
 
     // いま受付中のイベントを取得する。取れなければ既定値のまま進む。
+    // どのイベントに向いているかは画面上部に出す（現場での確認用）
     try {
-      const act = await get(dbRef(db, "activeEvent/eventId"));
-      if (act.exists() && act.val()) EV = String(act.val());
-    } catch (e) { /* 読めない場合は APP_CONFIG.eventId を使う */ }
+      const act = await get(dbRef(db, "activeEvent"));
+      if (act.exists() && act.val() && act.val().eventId) {
+        const a = act.val();
+        EV = String(a.eventId);
+        if (a.eventName) el.eventName.textContent = a.eventName;
+      } else {
+        el.eventName.textContent = T.eventName + "（受付先: " + EV + "）";
+      }
+    } catch (e) {
+      el.eventName.textContent = T.eventName + "（受付先: " + EV + "）";
+    }
 
     const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
     mine = snap.val() || {};
