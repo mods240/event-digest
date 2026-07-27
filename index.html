@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-27c  (QRのイベント指定に対応)
+  BUILD: 2026-07-27d  (写真の投稿にも対応)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -173,7 +173,7 @@
     <h1 id="heading"></h1>
     <p class="lead" id="lead"></p>
 
-    <input type="file" id="file" accept="video/*" class="visually-hidden">
+    <input type="file" id="file" accept="video/*,image/*" class="visually-hidden">
 
     <label class="dial" id="dial" for="file">
       <svg viewBox="0 0 196 196" aria-hidden="true">
@@ -182,7 +182,7 @@
       </svg>
       <span class="dial-face" id="dialFace">
         <span class="dial-glyph">＋</span>
-        <span class="dial-label">動画を選ぶ</span>
+        <span class="dial-label">動画・写真を選ぶ</span>
         <span class="dial-sub">カメラロールから</span>
       </span>
     </label>
@@ -242,8 +242,8 @@ const APP_CONFIG = {
   texts: {
     eventName: "AVA SUMMER PARTY 2026",
     heading: '今日のいちばんを、<span class="accent">1本</span>。',
-    lead: "本日撮影された動画の中から、いちばん印象に残った1本をご投稿ください。エンディング映像の素材として使わせていただきます。",
-    consent: "投稿した動画が、本日のエンディング映像の制作に使用されることに同意します。",
+    lead: "本日撮影された動画または写真の中から、いちばん印象に残った1点をご投稿ください。エンディング映像の素材として使わせていただきます。",
+    consent: "投稿した動画・写真が、本日のエンディング映像の制作に使用されることに同意します。",
     notes: [
       "お預かりした動画は、本イベントのエンディング映像制作を目的として使用いたします。",
       "動画に他の参加者が映り込んでいる場合は、その方の了解が得られる範囲でのご投稿をお願いいたします。",
@@ -318,12 +318,14 @@ function setRing(pct){
 function faceIdle(){
   el.dialFace.innerHTML =
     '<span class="dial-glyph">＋</span>' +
-    '<span class="dial-label">動画を選ぶ</span>' +
+    '<span class="dial-label">動画・写真を選ぶ</span>' +
     '<span class="dial-sub">カメラロールから</span>';
   setRing(0);
 }
-function facePicked(name, size){
-  el.dialFace.innerHTML = '<span class="dial-glyph">🎬</span>' +
+function isImage(f){ return !!(f && f.type && f.type.indexOf('image/') === 0); }
+
+function facePicked(name, size, still){
+  el.dialFace.innerHTML = '<span class="dial-glyph">' + (still ? '🖼' : '🎬') + '</span>' +
     '<span class="dial-label">選択中</span><span class="dial-sub"></span>';
   el.dialFace.querySelector(".dial-sub").textContent = name + " / " + mb(size);
   setRing(0);
@@ -425,7 +427,7 @@ el.file.addEventListener("change", () => {
     return;
   }
   picked = f;
-  facePicked(f.name, f.size);
+  facePicked(f.name, f.size, isImage(f));
   if (f.size > WARN_BYTES){
     showMsg(`${mb(f.size)}あります。送信に数分かかることがあります。完了表示が出るまで、この画面を開いたままお待ちください。`, "warn");
   }
@@ -455,7 +457,7 @@ el.send.addEventListener("click", () => {
 
   const task = uploadBytesResumable(
     stRef(storage, storagePath), f,
-    { contentType: f.type || "video/mp4" }
+    { contentType: f.type || (isImage(f) ? "image/jpeg" : "video/mp4") }
   );
 
   window.onbeforeunload = () => "送信中です。画面を閉じると投稿が取り消されます。";
@@ -466,9 +468,9 @@ el.send.addEventListener("click", () => {
       window.onbeforeunload = null;
       uploading = false;
       el.dial.classList.remove("is-busy");
-      facePicked(f.name, f.size);
+      facePicked(f.name, f.size, isImage(f));
       const m = (err && err.code === "storage/unauthorized")
-        ? "この形式またはサイズの動画は受け付けられません。別の動画をお試しください。"
+        ? "この形式またはサイズは受け付けられません。別の動画または写真をお試しください。"
         : "送信できませんでした。電波の良い場所で、もう一度お試しください。";
       showMsg(m, "err");
       refreshSendButton();
