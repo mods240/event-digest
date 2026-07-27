@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-27b  (受付中イベントを自動取得・表示)
+  BUILD: 2026-07-27c  (QRのイベント指定に対応)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -267,6 +267,9 @@ import { getStorage, ref as stRef, uploadBytesResumable, deleteObject }
 
 const T = APP_CONFIG.texts;
 let EV = APP_CONFIG.eventId;   // 起動時に Firebase の値で上書きされます
+
+// QR に ?e=イベントID が付いていれば拾う（ポスターの区別用）
+const QR_EVENT = (new URLSearchParams(location.search).get('e') || '').trim();
 const MAX_BYTES = APP_CONFIG.maxFileSizeMB * 1024 * 1024;
 const WARN_BYTES = APP_CONFIG.largeFileWarnMB * 1024 * 1024;
 
@@ -532,18 +535,27 @@ function watchDeadline(){
     await signInAnonymously(auth);
     await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u){ uid = u.uid; res(); } }));
 
-    // いま受付中のイベントを取得する。取れなければ既定値のまま進む。
-    // どのイベントに向いているかは画面上部に出す（現場での確認用）
+    // 投稿先の決め方
+    //   1) 受信中のイベント（Firebase の activeEvent）を最優先する
+    //   2) 取れなければ QR の ?e= を使う
+    //   3) それも無ければ APP_CONFIG.eventId
+    // 古いポスターが会場に残っていても、常に受付中のイベントに入るようにするため。
+    let active = null;
     try {
       const act = await get(dbRef(db, "activeEvent"));
-      if (act.exists() && act.val() && act.val().eventId) {
-        const a = act.val();
-        EV = String(a.eventId);
-        if (a.eventName) el.eventName.textContent = a.eventName;
-      } else {
-        el.eventName.textContent = T.eventName + "（受付先: " + EV + "）";
+      if (act.exists() && act.val() && act.val().eventId) active = act.val();
+    } catch (e) { /* 読めない場合は下で控えを使う */ }
+
+    if (active) {
+      EV = String(active.eventId);
+      if (active.eventName) el.eventName.textContent = active.eventName;
+      if (QR_EVENT && QR_EVENT !== EV) {
+        // 別のイベント用のポスターが混ざっている可能性を知らせる
+        showMsg("このQRコードは別のイベントのものですが、" +
+                "本日受付中の「" + (active.eventName || EV) + "」に投稿します。", "warn");
       }
-    } catch (e) {
+    } else {
+      if (QR_EVENT) EV = QR_EVENT;
       el.eventName.textContent = T.eventName + "（受付先: " + EV + "）";
     }
 
