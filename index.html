@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-26c  (iOS 写真ピッカー対応)
+  BUILD: 2026-07-27  (受付中イベントを自動取得)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -220,6 +220,8 @@
 // ★ APP_CONFIG ── ここだけ書き換えてください
 // ============================================================
 const APP_CONFIG = {
+  // 受付中のイベントは受信デーモンが Firebase に書き込むので、
+  // 通常はこの値を書き換える必要はありません（取得できないときの控えです）
   eventId: "test-001",
 
   // Firebase コンソール → プロジェクトの設定 → マイアプリ（ウェブ）の設定値
@@ -264,7 +266,7 @@ import { getStorage, ref as stRef, uploadBytesResumable, deleteObject }
   from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
 
 const T = APP_CONFIG.texts;
-const EV = APP_CONFIG.eventId;
+let EV = APP_CONFIG.eventId;   // 起動時に Firebase の値で上書きされます
 const MAX_BYTES = APP_CONFIG.maxFileSizeMB * 1024 * 1024;
 const WARN_BYTES = APP_CONFIG.largeFileWarnMB * 1024 * 1024;
 
@@ -529,6 +531,12 @@ function watchDeadline(){
 
     await signInAnonymously(auth);
     await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u){ uid = u.uid; res(); } }));
+
+    // いま受付中のイベントを取得する。取れなければ既定値のまま進む。
+    try {
+      const act = await get(dbRef(db, "activeEvent/eventId"));
+      if (act.exists() && act.val()) EV = String(act.val());
+    } catch (e) { /* 読めない場合は APP_CONFIG.eventId を使う */ }
 
     const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
     mine = snap.val() || {};
