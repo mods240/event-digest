@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-28  (動画/写真の選択を分離)
+  BUILD: 2026-07-28b  (操作パネルの文言を反映)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -600,6 +600,24 @@ function watchDeadline(){
       if (QR_EVENT) EV = QR_EVENT;
       el.eventName.textContent = T.eventName + "（受付先: " + EV + "）";
     }
+
+    // 操作パネルで入力された見出し・リード文・注意書きがあれば、それに差し替える。
+    // 無ければ APP_CONFIG.texts の既定文言のまま。
+    try {
+      const posterSnap = await get(dbRef(db, `events/${EV}/config/poster`));
+      if (posterSnap.exists()) {
+        const p = posterSnap.val() || {};
+        if (p.head) el.heading.textContent = p.head;
+        if (p.lead) el.lead.textContent = p.lead;
+        if (p.note) {
+          const extra = document.createElement("p");
+          extra.className = "lead";
+          extra.style.cssText = "margin-top:10px;color:var(--amber-soft)";
+          extra.textContent = p.note;
+          el.lead.insertAdjacentElement("afterend", extra);
+        }
+      }
+    } catch (e) { /* 読めなければ既定文言のまま表示する */ }
 
     const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
     mine = snap.val() || {};
