@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-27d  (写真の投稿にも対応)
+  BUILD: 2026-07-28  (動画/写真の選択を分離)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -51,7 +51,16 @@
   .lead{margin:14px 0 0;color:var(--muted);font-size:14px}
 
   /* ---- signature: upload dial ---- */
+  .modeToggle{display:flex;gap:8px;justify-content:center;margin:30px 0 0}
+  .modeBtn{
+    padding:9px 18px;border-radius:999px;border:1px solid var(--line);
+    background:var(--ink-2);color:var(--muted);font-size:13px;font-weight:700;
+    font-family:inherit;cursor:pointer;
+  }
+  .modeBtn.on{background:var(--amber);color:#241802;border-color:transparent}
+
   .dial{
+
     position:relative;width:196px;height:196px;margin:34px auto 0;
     display:block;border:0;padding:0;background:none;cursor:pointer;
     -webkit-user-select:none;user-select:none;
@@ -173,16 +182,22 @@
     <h1 id="heading"></h1>
     <p class="lead" id="lead"></p>
 
-    <input type="file" id="file" accept="video/*,image/*" class="visually-hidden">
+    <input type="file" id="fileVideo" accept="video/*" class="visually-hidden">
+    <input type="file" id="filePhoto" accept="image/*" class="visually-hidden">
 
-    <label class="dial" id="dial" for="file">
+    <div class="modeToggle" id="modeToggle">
+      <button type="button" class="modeBtn on" data-mode="video">🎬 動画</button>
+      <button type="button" class="modeBtn" data-mode="photo">🖼 写真</button>
+    </div>
+
+    <label class="dial" id="dial" for="fileVideo">
       <svg viewBox="0 0 196 196" aria-hidden="true">
         <circle class="track" cx="98" cy="98" r="94"></circle>
         <circle class="fill" id="ring" cx="98" cy="98" r="94"></circle>
       </svg>
       <span class="dial-face" id="dialFace">
         <span class="dial-glyph">＋</span>
-        <span class="dial-label">動画・写真を選ぶ</span>
+        <span class="dial-label">動画を選ぶ</span>
         <span class="dial-sub">カメラロールから</span>
       </span>
     </label>
@@ -278,7 +293,8 @@ const el = {
   loading:$("loading"), app:$("app"), closed:$("closed"),
   eventName:$("eventName"), heading:$("heading"), lead:$("lead"),
   dial:$("dial"), dialFace:$("dialFace"), ring:$("ring"),
-  file:$("file"), nick:$("nick"), consent:$("consent"), consentText:$("consentText"),
+  fileVideo:$("fileVideo"), filePhoto:$("filePhoto"),
+  nick:$("nick"), consent:$("consent"), consentText:$("consentText"),
   send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
   closedTitle:$("closedTitle"), closedBody:$("closedBody")
 };
@@ -316,9 +332,10 @@ function setRing(pct){
   el.ring.style.strokeDashoffset = String(C - C * Math.max(0, Math.min(1, pct)));
 }
 function faceIdle(){
+  const label = pickMode === "photo" ? "写真を選ぶ" : "動画を選ぶ";
   el.dialFace.innerHTML =
     '<span class="dial-glyph">＋</span>' +
-    '<span class="dial-label">動画・写真を選ぶ</span>' +
+    '<span class="dial-label">' + label + '</span>' +
     '<span class="dial-sub">カメラロールから</span>';
   setRing(0);
 }
@@ -347,10 +364,26 @@ function faceDone(){
   setRing(1);
 }
 
+let pickMode = "video";   // "video" か "photo"。ボタンで切り替える。
+
+function currentInput(){ return pickMode === "photo" ? el.filePhoto : el.fileVideo; }
+
+function setPickMode(mode){
+  pickMode = mode;
+  document.querySelectorAll(".modeBtn").forEach((b) => {
+    b.classList.toggle("on", b.dataset.mode === mode);
+  });
+  el.dial.setAttribute("for", mode === "photo" ? "filePhoto" : "fileVideo");
+  if (!uploading) faceIdle();
+  picked = null;
+  refreshSendButton();
+}
+
 function refreshDial(){
   const full = Object.keys(mine).length >= APP_CONFIG.maxFiles;
   const block = uploading || isClosed || full;
-  el.file.disabled = block;              // disabled な input はピッカーが開かない
+  el.fileVideo.disabled = block;
+  el.filePhoto.disabled = block;   // disabled な input はピッカーが開かない
   el.dial.classList.toggle("is-disabled", block);
 }
 
@@ -405,8 +438,12 @@ async function removeUpload(id){
 // ---- ファイル選択 ----
 // ラベルと input を for/id で結び付けているため、タップでピッカーが開きます。
 // （iOS Safari では JS の .click() より確実です）
+document.querySelectorAll(".modeBtn").forEach((b) => {
+  b.addEventListener("click", () => setPickMode(b.dataset.mode));
+});
+
 el.dial.addEventListener("click", (e) => {
-  if (el.file.disabled){
+  if (currentInput().disabled){
     e.preventDefault();
     if (!uploading && !isClosed && Object.keys(mine).length >= APP_CONFIG.maxFiles){
       showMsg(`投稿は${APP_CONFIG.maxFiles}本までです。入れ替える場合は、下の一覧から取り消してください。`, "warn");
@@ -416,13 +453,14 @@ el.dial.addEventListener("click", (e) => {
   clearMsg();
 });
 
-el.file.addEventListener("change", () => {
-  const f = el.file.files && el.file.files[0];
+function onFileChosen(){
+  const f = currentInput().files && currentInput().files[0];
   if (!f) return;
   clearMsg();
   if (f.size > MAX_BYTES){
     picked = null; faceIdle();
-    showMsg(`ファイルが大きすぎます（${mb(f.size)}）。${APP_CONFIG.maxFileSizeMB} MB までの動画をお選びください。`, "err");
+    const kind = pickMode === "photo" ? "写真" : "動画";
+    showMsg(`ファイルが大きすぎます（${mb(f.size)}）。${APP_CONFIG.maxFileSizeMB} MB までの${kind}をお選びください。`, "err");
     refreshSendButton();
     return;
   }
@@ -432,7 +470,9 @@ el.file.addEventListener("change", () => {
     showMsg(`${mb(f.size)}あります。送信に数分かかることがあります。完了表示が出るまで、この画面を開いたままお待ちください。`, "warn");
   }
   refreshSendButton();
-});
+}
+el.fileVideo.addEventListener("change", onFileChosen);
+el.filePhoto.addEventListener("change", onFileChosen);
 
 el.nick.addEventListener("input", () => {
   localStorage.setItem("evdigest_nick", el.nick.value);
@@ -493,7 +533,7 @@ el.send.addEventListener("click", () => {
         faceDone();
         showMsg("投稿を受け付けました。ありがとうございます。", "ok");
         picked = null;
-        el.file.value = "";
+        currentInput().value = "";
         renderList();
         setTimeout(() => { if (!uploading) faceIdle(); }, 2600);
       } catch (e){
