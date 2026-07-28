@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-28b  (操作パネルの文言を反映)
+  BUILD: 2026-07-28c  (投稿本数の上限を操作パネルから変更可能に)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -282,6 +282,7 @@ import { getStorage, ref as stRef, uploadBytesResumable, deleteObject }
 
 const T = APP_CONFIG.texts;
 let EV = APP_CONFIG.eventId;   // 起動時に Firebase の値で上書きされます
+let MAX_FILES = APP_CONFIG.maxFiles;   // 同上。無制限のときは非常に大きな値になる
 
 // QR に ?e=イベントID が付いていれば拾う（ポスターの区別用）
 const QR_EVENT = (new URLSearchParams(location.search).get('e') || '').trim();
@@ -380,7 +381,7 @@ function setPickMode(mode){
 }
 
 function refreshDial(){
-  const full = Object.keys(mine).length >= APP_CONFIG.maxFiles;
+  const full = Object.keys(mine).length >= MAX_FILES;
   const block = uploading || isClosed || full;
   el.fileVideo.disabled = block;
   el.filePhoto.disabled = block;   // disabled な input はピッカーが開かない
@@ -390,13 +391,13 @@ function refreshDial(){
 function refreshSendButton(){
   const n = Object.keys(mine).length;
   el.send.disabled = !(picked && el.consent.checked && el.nick.value.trim() && !uploading
-                       && n < APP_CONFIG.maxFiles && !isClosed);
+                       && n < MAX_FILES && !isClosed);
   refreshDial();
 }
 
 function renderList(){
   const ids = Object.keys(mine).sort();
-  el.count.textContent = ids.length + " / " + APP_CONFIG.maxFiles;
+  el.count.textContent = ids.length + " / " + (MAX_FILES >= 9999 ? "∞" : MAX_FILES);
   if (ids.length === 0){
     el.list.innerHTML = '<p class="empty">まだ投稿はありません。</p>';
     refreshSendButton();
@@ -445,8 +446,8 @@ document.querySelectorAll(".modeBtn").forEach((b) => {
 el.dial.addEventListener("click", (e) => {
   if (currentInput().disabled){
     e.preventDefault();
-    if (!uploading && !isClosed && Object.keys(mine).length >= APP_CONFIG.maxFiles){
-      showMsg(`投稿は${APP_CONFIG.maxFiles}本までです。入れ替える場合は、下の一覧から取り消してください。`, "warn");
+    if (!uploading && !isClosed && Object.keys(mine).length >= MAX_FILES){
+      showMsg(`投稿は${MAX_FILES}本までです。入れ替える場合は、下の一覧から取り消してください。`, "warn");
     }
     return;
   }
@@ -618,6 +619,16 @@ function watchDeadline(){
         }
       }
     } catch (e) { /* 読めなければ既定文言のまま表示する */ }
+
+    // 操作パネルで投稿本数の上限が設定されていれば、それに従う。
+    // 無ければ APP_CONFIG.maxFiles（既定値）のまま。
+    try {
+      const limitSnap = await get(dbRef(db, `events/${EV}/config/uploadLimit`));
+      if (limitSnap.exists()) {
+        const v = Number(limitSnap.val());
+        if (v > 0) MAX_FILES = v;
+      }
+    } catch (e) { /* 読めなければ既定の本数のまま */ }
 
     const snap = await get(dbRef(db, `events/${EV}/myUploads/${uid}`));
     mine = snap.val() || {};
