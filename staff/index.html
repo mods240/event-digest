@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#12172B">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="スタッフ撮影">
+<title>スタッフ撮影</title>
+<!--
+  Event Digest / スタッフ撮影アプリ (Component F)
+  BUILD: 2026-07-28
+
+  一般参加者向けの投稿ページ（upload/index.html）とは完全に別の経路。
+  ・カメラロールを一切参照しない。アプリ内で撮影したものだけを扱う。
+  ・Firebase の書き込み先も別パス（events/{id}/staffUploads）にして混ざらないようにする。
+  ・QR を読んだ時点のイベントIDを、この端末に固定して記憶する（以後は自動追従しない）。
+    理由: 「開くたびに受付中イベントへ自動追従」させると、前日リハーサルで使った
+    端末が本番当日に気づかず別イベントへ投稿し続ける事故が起きうるため。
+    次のイベントで使うときは、そのイベント用のQRを読み直してもらう運用にする。
+  ・アップロード成功後もすぐには端末から消さず、「翌日の指定時刻」まで残す。
+    その間に本当に届いているか不安になっても、端末側にまだ実体がある安心感のため。
+  ・失敗した動画は自動では消さない。マークを付けてタップで再送できるようにする。
+-->
+<style>
+  :root{
+    --ink:#12172B;
+    --ink-2:#1B2240;
+    --ink-3:#262E52;
+    --ink-4:#323C6B;
+    --line:rgba(255,255,255,.10);
+    --amber:#F2B138;
+    --amber-soft:#FFD98A;
+    --light:#E9EBF3;
+    --muted:#8990AE;
+    --good:#5FC793;
+    --bad:#FF7A6B;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;padding:0;overscroll-behavior:none}
+  body{
+    background:#000;
+    color:var(--light);
+    font-family:-apple-system,BlinkMacSystemFont,"Hiragino Kaku Gothic ProN","Hiragino Sans","Noto Sans JP","Yu Gothic Medium",sans-serif;
+    height:100vh;height:100dvh;
+    overflow:hidden;
+  }
+
+  /* ---------- 起動時の読み込み ---------- */
+  #boot{
+    position:fixed;inset:0;background:var(--ink);z-index:100;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+  }
+  #boot .spin{
+    width:34px;height:34px;border-radius:50%;
+    border:3px solid var(--ink-4);border-top-color:var(--amber);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #boot p{color:var(--muted);font-size:13px;margin:0}
+
+  /* ---------- QRなしで開いた場合の案内 ---------- */
+  #needQr{
+    position:fixed;inset:0;background:var(--ink);z-index:99;
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:32px;gap:14px;
+  }
+  #needQr h1{font-size:19px;margin:0}
+  #needQr p{color:var(--muted);font-size:14px;line-height:1.7;margin:0;max-width:320px}
+
+  /* ---------- カメラ画面 ---------- */
+  #cam{position:fixed;inset:0;display:flex;flex-direction:column}
+  .camTop{
+    position:absolute;top:0;left:0;right:0;z-index:5;
+    padding:calc(14px + env(safe-area-inset-top)) 16px 40px;
+    display:flex;align-items:center;justify-content:space-between;
+    background:linear-gradient(to bottom, rgba(0,0,0,.65), transparent);
+  }
+  .evBadge{
+    font-size:11px;font-weight:700;letter-spacing:.06em;color:var(--amber);
+    background:rgba(0,0,0,.4);padding:5px 11px;border-radius:999px;
+    border:1px solid rgba(242,177,56,.35);
+  }
+  .queueBadge{
+    font-size:12px;font-weight:700;color:var(--light);
+    background:rgba(0,0,0,.45);padding:6px 12px;border-radius:999px;
+    display:flex;align-items:center;gap:6px;cursor:pointer;border:1px solid var(--line);
+  }
+  .queueBadge .n{color:var(--amber)}
+  .queueBadge.err{border-color:var(--bad)}
+  .queueBadge.err .n{color:var(--bad)}
+
+  video#preview{
+    position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000;
+  }
+  #camMsg{
+    position:absolute;top:50%;left:0;right:0;transform:translateY(-50%);
+    text-align:center;color:var(--muted);font-size:14px;padding:0 32px;display:none;
+  }
+
+  .camBottom{
+    position:absolute;bottom:0;left:0;right:0;z-index:5;
+    padding:0 24px calc(28px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;align-items:center;gap:16px;
+    background:linear-gradient(to top, rgba(0,0,0,.7), transparent 70%);
+  }
+  #timer{
+    font-variant-numeric:tabular-nums;font-size:15px;font-weight:700;
+    color:var(--light);background:rgba(0,0,0,.4);padding:5px 13px;border-radius:999px;
+    display:none;align-items:center;gap:7px;
+  }
+  #timer.show{display:flex}
+  #timer .rec{width:8px;height:8px;border-radius:50%;background:var(--bad);animation:blink 1s step-start infinite}
+  @keyframes blink{50%{opacity:.2}}
+
+  .shutterRow{display:flex;align-items:center;justify-content:center;gap:44px;width:100%}
+  #shutter{
+    width:76px;height:76px;border-radius:50%;
+    border:4px solid rgba(255,255,255,.9);background:transparent;
+    padding:0;position:relative;
+  }
+  #shutter::after{
+    content:'';position:absolute;inset:5px;border-radius:50%;
+    background:var(--bad);transition:border-radius .15s, inset .15s;
+  }
+  #shutter.recording::after{border-radius:9px;inset:22px}
+  #flip{
+    width:44px;height:44px;border-radius:50%;background:rgba(0,0,0,.4);
+    border:1px solid var(--line);color:var(--light);font-size:19px;
+  }
+  #nameChip{
+    font-size:12.5px;color:var(--muted);background:rgba(0,0,0,.35);
+    padding:5px 12px;border-radius:999px;border:1px solid var(--line);
+  }
+
+  /* ---------- 撮影直後の確認（数秒で自動アップロード） ---------- */
+  #review{
+    position:fixed;inset:0;background:#000;z-index:20;display:none;
+    flex-direction:column;
+  }
+  #review video{flex:1;width:100%;object-fit:contain;background:#000}
+  .reviewBar{
+    padding:16px 20px calc(20px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:12px;align-items:center;
+  }
+  .reviewCountdown{
+    width:100%;max-width:340px;height:6px;background:var(--ink-3);border-radius:999px;overflow:hidden;
+  }
+  .reviewCountdown > i{display:block;height:100%;background:var(--amber);width:100%}
+  .reviewBtns{display:flex;gap:12px}
+  .reviewBtns button{
+    padding:13px 26px;border-radius:999px;font-size:14.5px;font-weight:700;
+    font-family:inherit;border:0;cursor:pointer;
+  }
+  #btnUseThis{background:var(--amber);color:#241802}
+  #btnRetake{background:var(--ink-3);color:var(--light);border:1px solid var(--line)}
+
+  /* ---------- 名前入力（初回のみ） ---------- */
+  .mask{
+    position:fixed;inset:0;background:rgba(6,8,18,.82);z-index:50;
+    display:none;align-items:center;justify-content:center;padding:24px;
+  }
+  .mask.show{display:flex}
+  .sheet{
+    background:var(--ink-2);border:1px solid var(--line);border-radius:18px;
+    padding:26px 22px;width:100%;max-width:360px;
+  }
+  .sheet h2{font-size:17px;margin:0 0 8px}
+  .sheet p{color:var(--muted);font-size:13px;margin:0 0 16px;line-height:1.6}
+  .sheet input[type=text]{
+    width:100%;padding:13px 14px;border-radius:11px;border:1px solid var(--line);
+    background:var(--ink-3);color:var(--light);font-size:15px;font-family:inherit;
+  }
+  .sheet button{
+    width:100%;margin-top:14px;padding:13px;border-radius:11px;border:0;
+    background:var(--amber);color:#241802;font-size:15px;font-weight:700;font-family:inherit;
+  }
+
+  /* ---------- キュー一覧（送信待ち・完了・エラー） ---------- */
+  #queueSheet{
+    position:fixed;inset:0;background:rgba(6,8,18,.82);z-index:60;display:none;
+    flex-direction:column;justify-content:flex-end;
+  }
+  #queueSheet.show{display:flex}
+  .qPanel{
+    background:var(--ink-2);border-radius:20px 20px 0 0;
+    max-height:74vh;display:flex;flex-direction:column;
+    padding:16px 4px calc(16px + env(safe-area-inset-bottom));
+  }
+  .qHead{display:flex;align-items:center;justify-content:space-between;padding:0 18px 12px;border-bottom:1px solid var(--line)}
+  .qHead h3{margin:0;font-size:15px}
+  .qHead button{background:none;border:0;color:var(--muted);font-size:22px;line-height:1;padding:4px}
+  .qList{overflow-y:auto;padding:10px 14px}
+  .qItem{
+    display:flex;align-items:center;gap:12px;padding:10px 6px;border-bottom:1px solid rgba(255,255,255,.05);
+  }
+  .qItem img{width:56px;height:56px;border-radius:9px;object-fit:cover;background:var(--ink-3);flex:none}
+  .qMeta{flex:1;min-width:0}
+  .qMeta .t{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .qMeta .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+  .qMark{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex:none;font-size:14px}
+  .qMark.ok{background:rgba(95,199,147,.18);color:var(--good)}
+  .qMark.err{background:rgba(255,122,107,.18);color:var(--bad)}
+  .qMark.busy{background:rgba(242,177,56,.18);color:var(--amber)}
+  .qRetry{background:var(--ink-3);border:1px solid var(--line);color:var(--light);border-radius:8px;padding:6px 11px;font-size:11.5px}
+  .qEmpty{color:var(--muted);font-size:13px;text-align:center;padding:30px 0}
+
+  .toast{
+    position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(8px);
+    background:var(--ink-2);border:1px solid var(--line);color:var(--light);
+    padding:11px 20px;border-radius:999px;font-size:13.5px;z-index:80;
+    opacity:0;transition:opacity .2s, transform .2s;pointer-events:none;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+
+<div id="boot"><div class="spin"></div><p>準備しています…</p></div>
+
+<div id="needQr">
+  <h1>イベント用のQRを読み取ってください</h1>
+  <p>このアプリは、イベントごとに配布されるQRコードを読み取って開くと使えるようになります。会場のスタッフ用QRをカメラで読み取ってください。</p>
+</div>
+
+<div id="cam" style="display:none">
+  <div class="camTop">
+    <span class="evBadge" id="evBadge">—</span>
+    <span class="queueBadge" id="queueBadge"><span class="n" id="queueN">0</span> 件</span>
+  </div>
+
+  <video id="preview" autoplay playsinline muted></video>
+  <p id="camMsg"></p>
+
+  <div class="camBottom">
+    <div id="timer"><span class="rec"></span><span id="timerText">0:00</span></div>
+    <div class="shutterRow">
+      <div style="width:44px"></div>
+      <button id="shutter" aria-label="撮影"></button>
+      <button id="flip" aria-label="カメラ切替">⟲</button>
+    </div>
+    <span class="qChip" id="nameChip" style="display:none"></span>
+  </div>
+</div>
+
+<div id="review">
+  <video id="reviewVideo" playsinline autoplay muted loop></video>
+  <div class="reviewBar">
+    <div class="reviewCountdown"><i id="reviewBar"></i></div>
+    <div class="reviewBtns">
+      <button id="btnRetake">撮り直す</button>
+      <button id="btnUseThis">これを送る</button>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="nameMask">
+  <div class="sheet">
+    <h2>お名前を入力してください</h2>
+    <p>スタッフ内での記録用です。次回からは表示されません。</p>
+    <input type="text" id="nameInput" placeholder="例: 田中" maxlength="20">
+    <button id="nameSave">はじめる</button>
+  </div>
+</div>
+
+<div id="queueSheet">
+  <div class="qPanel">
+    <div class="qHead">
+      <h3>送信状況</h3>
+      <button id="qClose">✕</button>
+    </div>
+    <div class="qList" id="qList"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script type="module">
+// ============================================================
+// 設定（イベント本体とは別プロジェクトではなく、同じ Firebase を使う。
+// ただし書き込み先パスを分けることで、一般参加者の投稿とは混ざらない）
+// ============================================================
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyBuHIvsRF9UtT14m14-qWR--aVMKl7XAhw",
+  authDomain:        "event-digest-e9565.firebaseapp.com",
+  databaseURL:       "https://event-digest-e9565-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:         "event-digest-e9565",
+  storageBucket:     "event-digest-e9565.firebasestorage.app",
+  messagingSenderId: "791344995733",
+  appId:             "1:791344995733:web:adbca1acd6d871c8576a9c"
+};
+
+const MAX_RECORD_SEC = 60;          // 1本あたりの最長録画秒数（安全弁）
+const KEEP_HOUR = 2;                 // 削除予定時刻（アップロード成功日の翌日 この時刻）
+const DB_NAME = 'staffcam';
+const STORE = 'clips';
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getAuth, signInAnonymously, onAuthStateChanged }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+import { getDatabase, ref as dbRef, set, get, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-database.js";
+import { getStorage, ref as stRef, uploadBytesResumable }
+  from "https://www.gstatic.com/firebasejs/10.14.1/firebase-storage.js";
+
+const app = initializeApp(FIREBASE_CONFIG);
+const auth = getAuth(app);
+const db = getDatabase(app);
+const storage = getStorage(app);
+
+const $ = (id) => document.getElementById(id);
+const el = {
+  boot:$('boot'), needQr:$('needQr'), cam:$('cam'),
+  evBadge:$('evBadge'), queueBadge:$('queueBadge'), queueN:$('queueN'),
+  preview:$('preview'), camMsg:$('camMsg'),
+  timer:$('timer'), timerText:$('timerText'),
+  shutter:$('shutter'), flip:$('flip'), nameChip:$('nameChip'),
+  review:$('review'), reviewVideo:$('reviewVideo'), reviewBar:$('reviewBar'),
+  btnUseThis:$('btnUseThis'), btnRetake:$('btnRetake'),
+  nameMask:$('nameMask'), nameInput:$('nameInput'), nameSave:$('nameSave'),
+  queueSheet:$('queueSheet'), qList:$('qList'), qClose:$('qClose'),
+  toast:$('toast'),
+};
+
+function toast(msg){
+  el.toast.textContent = msg;
+  el.toast.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => el.toast.classList.remove('show'), 2400);
+}
+
+// ============================================================
+// イベントの紐づけ（QR を読んだ時点で固定。以後は自動追従しない）
+// ============================================================
+const LS_EVENT = 'staffcam_event';
+const LS_NAME = 'staffcam_name';
+
+function boundEvent(){
+  const url = new URL(location.href);
+  const qrEvent = (url.searchParams.get('e') || '').trim();
+  if (qrEvent) {
+    // QR 付きで開かれた → この端末に固定する（上書き）
+    localStorage.setItem(LS_EVENT, qrEvent);
+    // URL をきれいにして、以後アイコンから開いても同じ紐づけのまま使えるようにする
+    history.replaceState({}, '', location.pathname);
+    return qrEvent;
+  }
+  return localStorage.getItem(LS_EVENT) || '';
+}
+
+const EVENT_ID = boundEvent();
+
+if (!EVENT_ID) {
+  el.boot.style.display = 'none';
+  el.needQr.style.display = 'flex';
+  throw new Error('no event bound');
+}
+
+el.evBadge.textContent = EVENT_ID;
+
+// ============================================================
+// IndexedDB: 撮影キューの永続化（アプリを閉じても残る）
+// ============================================================
+function openDb(){
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains(STORE)) {
+        d.createObjectStore(STORE, { keyPath: 'id' });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+let dbp = openDb();
+
+async function idbPut(rec){
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const tx = d.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(rec);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbDelete(id){
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const tx = d.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => res();
+    tx.onerror = () => rej(tx.error);
+  });
+}
+async function idbAll(){
+  const d = await dbp;
+  return new Promise((res, rej) => {
+    const tx = d.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => res(req.result || []);
+    req.onerror = () => rej(req.error);
+  });
+}
+
+// レコード構造:
+// { id, blob, mime, createdAt, status: 'pending'|'uploading'|'done'|'error',
+//   errorMsg, uploadedAt, deleteAfter, storagePath, nickname }
+
+// ============================================================
+// 名前（初回のみ）
+// ============================================================
+let NICK = localStorage.getItem(LS_NAME) || '';
+if (!NICK) {
+  el.nameMask.classList.add('show');
+} 
+el.nameSave.onclick = () => {
+  const v = el.nameInput.value.trim();
+  if (!v) { toast('お名前を入力してください。'); return; }
+  NICK = v;
+  localStorage.setItem(LS_NAME, v);
+  el.nameMask.classList.remove('show');
+};
+
+function refreshNameChip(){
+  el.nameChip.style.display = NICK ? 'inline-block' : 'none';
+  el.nameChip.textContent = NICK;
+}
+
+// ============================================================
+// 認証
+// ============================================================
+let uid = null;
+async function ensureAuth(){
+  await signInAnonymously(auth);
+  await new Promise((res) => onAuthStateChanged(auth, (u) => { if (u) { uid = u.uid; res(); } }));
+}
+
+// ============================================================
+// カメラ
+// ============================================================
+let stream = null;
+let facingMode = 'environment';
+let recorder = null;
+let recordedChunks = [];
+let recordTimer = null;
+let recordStartedAt = 0;
+
+async function startCamera(){
+  try {
+    if (stream) stream.getTracks().forEach((t) => t.stop());
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode, width: { ideal: 1920 }, height: { ideal: 1080 } },
+      audio: true,
+    });
+    el.preview.srcObject = stream;
+    el.camMsg.style.display = 'none';
+  } catch (e) {
+    el.camMsg.style.display = 'block';
+    el.camMsg.textContent = 'カメラを使えませんでした。設定でこのアプリのカメラ・マイクの許可を確認してください。';
+  }
+}
+
+el.flip.onclick = () => {
+  facingMode = facingMode === 'environment' ? 'user' : 'environment';
+  startCamera();
+};
+
+function pickMimeType(){
+  const cands = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  for (const c of cands) if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c;
+  return '';
+}
+
+function startRecording(){
+  if (!stream) return;
+  recordedChunks = [];
+  const mime = pickMimeType();
+  try {
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  } catch (e) {
+    toast('この端末では録画できませんでした。');
+    return;
+  }
+  recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) recordedChunks.push(e.data); };
+  recorder.onstop = onRecordStop;
+  recorder.start();
+  recordStartedAt = Date.now();
+  el.shutter.classList.add('recording');
+  el.timer.classList.add('show');
+  tickTimer();
+}
+
+function tickTimer(){
+  const sec = (Date.now() - recordStartedAt) / 1000;
+  const m = Math.floor(sec / 60), s = Math.floor(sec % 60);
+  el.timerText.textContent = m + ':' + String(s).padStart(2, '0');
+  if (sec >= MAX_RECORD_SEC) { stopRecording(); return; }
+  recordTimer = requestAnimationFrame(tickTimer);
+}
+
+function stopRecording(){
+  if (recorder && recorder.state !== 'inactive') recorder.stop();
+  cancelAnimationFrame(recordTimer);
+  el.shutter.classList.remove('recording');
+  el.timer.classList.remove('show');
+}
+
+let pendingBlob = null;
+let pendingMime = '';
+
+function onRecordStop(){
+  const mime = recorder.mimeType || pickMimeType() || 'video/webm';
+  pendingMime = mime;
+  pendingBlob = new Blob(recordedChunks, { type: mime });
+  const url = URL.createObjectURL(pendingBlob);
+  el.reviewVideo.src = url;
+  el.cam.style.display = 'none';
+  el.review.style.display = 'flex';
+  startReviewCountdown();
+}
+
+// 撮影直後、数秒操作しなければ自動的に「これを送る」扱いにする
+const REVIEW_SEC = 6;
+let reviewTimer = null;
+function startReviewCountdown(){
+  const t0 = Date.now();
+  el.reviewBar.style.transition = 'none';
+  el.reviewBar.style.width = '100%';
+  requestAnimationFrame(() => {
+    el.reviewBar.style.transition = `width ${REVIEW_SEC}s linear`;
+    el.reviewBar.style.width = '0%';
+  });
+  clearTimeout(reviewTimer);
+  reviewTimer = setTimeout(() => useThisClip(), REVIEW_SEC * 1000);
+}
+function cancelReviewCountdown(){
+  clearTimeout(reviewTimer);
+}
+
+el.btnRetake.onclick = () => {
+  cancelReviewCountdown();
+  el.review.style.display = 'none';
+  el.cam.style.display = 'flex';
+  pendingBlob = null;
+  startCamera();
+};
+
+el.btnUseThis.onclick = () => useThisClip();
+
+async function useThisClip(){
+  cancelReviewCountdown();
+  if (!pendingBlob) return;
+  const blob = pendingBlob;
+  pendingBlob = null;
+  el.review.style.display = 'none';
+  el.cam.style.display = 'flex';
+  startCamera();
+
+  const id = 'clip_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+  const rec = {
+    id, blob, mime: pendingMime, createdAt: Date.now(),
+    status: 'pending', nickname: NICK || '', errorMsg: null,
+    uploadedAt: null, deleteAfter: null, storagePath: null,
+  };
+  await idbPut(rec);
+  toast('保存しました。送信します…');
+  refreshQueueBadge();
+  processQueue();
+}
+
+el.shutter.onmousedown = el.shutter.ontouchstart = (e) => {
+  e.preventDefault();
+  startRecording();
+};
+el.shutter.onmouseup = el.shutter.ontouchend = (e) => {
+  e.preventDefault();
+  if (recorder && recorder.state === 'recording') stopRecording();
+};
+
+// ============================================================
+// アップロードキューの処理
+// ============================================================
+let uploading = false;
+
+async function processQueue(){
+  if (uploading) return;
+  uploading = true;
+  try {
+    let all = await idbAll();
+    // 期限切れ（アップロード成功から翌日の指定時刻を過ぎたもの）を先に掃除
+    const now = Date.now();
+    for (const r of all) {
+      if (r.status === 'done' && r.deleteAfter && now >= r.deleteAfter) {
+        await idbDelete(r.id);
+      }
+    }
+    all = await idbAll();
+    for (const r of all) {
+      if (r.status === 'pending' || r.status === 'error') {
+        await uploadOne(r);
+      }
+    }
+  } finally {
+    uploading = false;
+    refreshQueueBadge();
+  }
+}
+
+async function uploadOne(rec){
+  rec.status = 'uploading';
+  rec.errorMsg = null;
+  await idbPut(rec);
+  refreshQueueBadge();
+  renderQueueListIfOpen();
+
+  try {
+    if (!uid) await ensureAuth();
+    const ext = (rec.mime || '').includes('mp4') ? 'mp4' : 'webm';
+    const fileName = rec.id + '.' + ext;
+    const storagePath = `events/${EVENT_ID}/staffUploads/${uid}/${fileName}`;
+    const task = uploadBytesResumable(stRef(storage, storagePath), rec.blob, { contentType: rec.mime });
+    await new Promise((resolve, reject) => {
+      task.on('state_changed', () => {}, reject, resolve);
+    });
+
+    // 台帳に記録（受信デーモンはここを見て取り込む）
+    const uploadId = uid + '_' + Date.now();
+    await set(dbRef(db, `events/${EVENT_ID}/staffUploads/${uploadId}`), {
+      uid, storagePath, fileName,
+      nickname: rec.nickname || 'スタッフ',
+      uploadedAt: serverTimestamp(),
+    });
+
+    // 翌日の指定時刻を削除予定にする
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(KEEP_HOUR, 0, 0, 0);
+
+    rec.status = 'done';
+    rec.uploadedAt = Date.now();
+    rec.deleteAfter = d.getTime();
+    rec.storagePath = storagePath;
+    await idbPut(rec);
+  } catch (e) {
+    rec.status = 'error';
+    rec.errorMsg = (e && e.message) || '送信に失敗しました';
+    await idbPut(rec);
+  }
+  refreshQueueBadge();
+  renderQueueListIfOpen();
+}
+
+async function refreshQueueBadge(){
+  const all = await idbAll();
+  const active = all.filter((r) => r.status !== 'done');
+  const hasErr = all.some((r) => r.status === 'error');
+  el.queueN.textContent = active.length;
+  el.queueBadge.classList.toggle('err', hasErr);
+}
+
+// ============================================================
+// 送信状況シート
+// ============================================================
+let queueOpen = false;
+el.queueBadge.onclick = async () => {
+  queueOpen = true;
+  el.queueSheet.classList.add('show');
+  await renderQueueList();
+};
+el.qClose.onclick = () => { queueOpen = false; el.queueSheet.classList.remove('show'); };
+function renderQueueListIfOpen(){ if (queueOpen) renderQueueList(); }
+
+async function renderQueueList(){
+  const all = (await idbAll()).sort((a, b) => b.createdAt - a.createdAt);
+  if (!all.length) { el.qList.innerHTML = '<p class="qEmpty">撮影した動画はまだありません。</p>'; return; }
+  el.qList.innerHTML = '';
+  for (const r of all) {
+    const item = document.createElement('div');
+    item.className = 'qItem';
+    const url = URL.createObjectURL(r.blob);
+    const markCls = r.status === 'done' ? 'ok' : r.status === 'error' ? 'err' : 'busy';
+    const markIcon = r.status === 'done' ? '✓' : r.status === 'error' ? '!' : '…';
+    const statusText = r.status === 'done' ? '送信完了'
+      : r.status === 'error' ? (r.errorMsg || '送信失敗')
+      : r.status === 'uploading' ? '送信中…' : '送信待ち';
+    item.innerHTML =
+      `<video src="${url}" muted style="width:56px;height:56px;border-radius:9px;object-fit:cover;background:#000;flex:none"></video>` +
+      `<div class="qMeta"><div class="t">${new Date(r.createdAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</div>` +
+      `<div class="s">${statusText}</div></div>` +
+      `<span class="qMark ${markCls}">${markIcon}</span>` +
+      (r.status === 'error' ? '<button class="qRetry">再送</button>' : '');
+    if (r.status === 'error') {
+      item.querySelector('.qRetry').onclick = () => {
+        r.status = 'pending';
+        idbPut(r).then(() => processQueue());
+      };
+    }
+    el.qList.appendChild(item);
+  }
+}
+
+// ============================================================
+// 起動
+// ============================================================
+(async function start(){
+  refreshNameChip();
+  await ensureAuth().catch(() => {});
+  await startCamera();
+  el.boot.style.display = 'none';
+  el.cam.style.display = 'flex';
+  refreshQueueBadge();
+  processQueue();
+
+  // オンラインに復帰したら自動で再送を試みる
+  window.addEventListener('online', () => processQueue());
+  // アプリに戻ってきたときも再送・期限切れ掃除を試みる
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) processQueue(); });
+})();
+</script>
+</body>
+</html>
