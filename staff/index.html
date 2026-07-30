@@ -10,7 +10,7 @@
 <title>スタッフ撮影</title>
 <!--
   Event Digest / スタッフ撮影アプリ (Component F)
-  BUILD: 2026-07-28
+  BUILD: 2026-07-30  (シャッター操作をタップ式に修正)
 
   一般参加者向けの投稿ページ（upload/index.html）とは完全に別の経路。
   ・カメラロールを一切参照しない。アプリ内で撮影したものだけを扱う。
@@ -247,6 +247,7 @@
 <div id="review">
   <video id="reviewVideo" playsinline autoplay muted loop></video>
   <div class="reviewBar">
+    <p id="reviewLabel" style="color:var(--muted);font-size:12.5px;margin:0">あと <span id="reviewSec">6</span> 秒で自動的に送信します</p>
     <div class="reviewCountdown"><i id="reviewBar"></i></div>
     <div class="reviewBtns">
       <button id="btnRetake">撮り直す</button>
@@ -525,6 +526,7 @@ function onRecordStop(){
 // 撮影直後、数秒操作しなければ自動的に「これを送る」扱いにする
 const REVIEW_SEC = 6;
 let reviewTimer = null;
+let reviewTick = null;
 function startReviewCountdown(){
   const t0 = Date.now();
   el.reviewBar.style.transition = 'none';
@@ -533,11 +535,19 @@ function startReviewCountdown(){
     el.reviewBar.style.transition = `width ${REVIEW_SEC}s linear`;
     el.reviewBar.style.width = '0%';
   });
+  $('reviewSec').textContent = REVIEW_SEC;
+  clearInterval(reviewTick);
+  reviewTick = setInterval(() => {
+    const left = Math.max(0, Math.ceil(REVIEW_SEC - (Date.now() - t0) / 1000));
+    $('reviewSec').textContent = left;
+    if (left <= 0) clearInterval(reviewTick);
+  }, 250);
   clearTimeout(reviewTimer);
   reviewTimer = setTimeout(() => useThisClip(), REVIEW_SEC * 1000);
 }
 function cancelReviewCountdown(){
   clearTimeout(reviewTimer);
+  clearInterval(reviewTick);
 }
 
 el.btnRetake.onclick = () => {
@@ -571,14 +581,16 @@ async function useThisClip(){
   processQueue();
 }
 
-el.shutter.onmousedown = el.shutter.ontouchstart = (e) => {
+// 1回タップで開始、もう1回タップで停止（iPhoneのカメラアプリと同じ方式）。
+// 「押している間だけ録画」だと、指を離す一瞬の動作だけで録画が終わってしまうため。
+el.shutter.addEventListener('click', (e) => {
   e.preventDefault();
-  startRecording();
-};
-el.shutter.onmouseup = el.shutter.ontouchend = (e) => {
-  e.preventDefault();
-  if (recorder && recorder.state === 'recording') stopRecording();
-};
+  if (recorder && recorder.state === 'recording') {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
 
 // ============================================================
 // アップロードキューの処理
