@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-08-02  (🔴ぼかしてほしい人モードを追加。残す人/追加でぼかす人を切り替えて指定可能に)
+  BUILD: 2026-08-02b  (🔴ぼかしてほしい人モードを追加。モードごとに丸の当たり判定を分離)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -667,9 +667,11 @@ function touchPointRatio(t, rect){
 function touchDist(t1, t2){
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
+// 今選んでいるモード(🟠/🔴)の丸だけを操作対象にする(別レイヤーのように衝突しないようにするため)
 function nearestMarkIndex(xRatio, yRatio, toleranceMult){
   let best = -1, bestDist = Infinity;
   blurMarks.forEach((m, i) => {
+    if ((m.mode || "keep") !== blurMode) return;
     const d = Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio);
     if (d < bestDist){ bestDist = d; best = i; }
   });
