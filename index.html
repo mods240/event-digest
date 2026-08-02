@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-08-02b  (🔴ぼかしてほしい人モードを追加。モードごとに丸の当たり判定を分離)
+  BUILD: 2026-07-31g  (サムネイル選択スライダーを追加。ドラッグ移動・ダブルタップ削除にも対応)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -709,7 +709,7 @@ if (HAS_TOUCH){
     if (e.touches.length !== 1) return;
     pinchState = null;
     const p = touchPointRatio(e.touches[0], rect);
-    dragState = { markIndex: nearestMarkIndex(p.xRatio, p.yRatio, 0.7), moved: false };
+    dragState = { markIndex: nearestMarkIndex(p.xRatio, p.yRatio, 0.5), moved: false };
   }, { passive: false });
 
   el.blurCanvas.addEventListener("touchmove", (e) => {
@@ -785,7 +785,7 @@ if (HAS_TOUCH){
     const rect = el.blurCanvas.getBoundingClientRect();
     const xRatio = (e.clientX - rect.left) / rect.width;
     const yRatio = (e.clientY - rect.top) / rect.height;
-    const idx = nearestMarkIndex(xRatio, yRatio, 0.7);
+    const idx = nearestMarkIndex(xRatio, yRatio, 0.5);
     if (idx >= 0) blurMarks.splice(idx, 1);
     else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO, mode: blurMode });
     redrawBlurMarks();
