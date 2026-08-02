@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31f  (丸のドラッグ移動に対応、削除操作をダブルタップに変更)
+  BUILD: 2026-07-31g  (サムネイル選択スライダーを追加。ドラッグ移動・ダブルタップ削除にも対応)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -110,6 +110,21 @@
   .blurStage .blurLoading{position:absolute;color:var(--muted);font-size:12px}
   .blurHint{margin:8px 0 0;font-size:11px;color:var(--muted);line-height:1.6}
   .blurCount{font-size:11px;color:var(--amber-soft);font-weight:700}
+
+  .scrubRow{display:none;align-items:center;gap:10px;margin-top:10px}
+  .scrubRow.show{display:flex}
+  .scrubLabel{font-size:11px;color:var(--muted);white-space:nowrap;flex:none}
+  .scrubRow input[type=range]{
+    flex:1;-webkit-appearance:none;appearance:none;height:4px;border-radius:2px;
+    background:var(--ink-3);outline:none;margin:0;
+  }
+  .scrubRow input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none;width:20px;height:20px;border-radius:50%;
+    background:var(--amber);border:2px solid var(--ink);cursor:pointer;
+  }
+  .scrubRow input[type=range]::-moz-range-thumb{
+    width:20px;height:20px;border-radius:50%;background:var(--amber);border:2px solid var(--ink);cursor:pointer;
+  }
 
   /* ---- form ---- */
   .field{margin-top:26px}
@@ -231,6 +246,10 @@
         <span class="blurLoading" id="blurLoading">画像を読み込み中…</span>
         <canvas id="blurCanvas"></canvas>
       </div>
+      <div class="scrubRow" id="scrubRow">
+        <span class="scrubLabel">サムネイルを選ぶ</span>
+        <input type="range" id="scrubSlider" min="0" max="1000" value="0" step="1">
+      </div>
       <p class="blurHint" id="blurHintText"></p>
     </div>
 
@@ -334,7 +353,8 @@ const el = {
   closedTitle:$("closedTitle"), closedBody:$("closedBody"),
   blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
   blurStage:$("blurStage"), blurLoading:$("blurLoading"),
-  blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText")
+  blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText"),
+  scrubRow:$("scrubRow"), scrubSlider:$("scrubSlider")
 };
 
 // ---- 文言の流し込み ----
@@ -364,6 +384,10 @@ const BLUR_MARK_RATIO = 0.16;   // 新規タップ時の既定サイズ(フレ�
 const BLUR_MARK_MIN = 0.05;     // ピンチで縮小できる下限
 const BLUR_MARK_MAX = 0.55;     // ピンチで拡大できる上限
 let pinchState = null;      // { markIndex, startDist, startRatio }
+let scrubVideo = null;      // サムネイル選び用に保持しておく<video>要素
+let scrubVideoUrl = null;
+let scrubSeeking = false;
+let scrubPendingRatio = null;   // シーク中に来た次の要求(1回だけ後で反映する)
 
 // ---- ユーティリティ ----
 function mb(bytes){
@@ -417,6 +441,15 @@ function faceDone(){
 // タップされた位置を中心に小さな参照画像を作る。ここでは「顔検出」はせず、
 // 単純にタップ位置周辺を切り出すだけ(検出・照合は受信側で行う想定)。
 
+function cleanupScrubVideo(){
+  if (scrubVideo) { try { scrubVideo.remove(); } catch (_e) { /* noop */ } }
+  if (scrubVideoUrl) { try { URL.revokeObjectURL(scrubVideoUrl); } catch (_e) { /* noop */ } }
+  scrubVideo = null;
+  scrubVideoUrl = null;
+  scrubSeeking = false;
+  scrubPendingRatio = null;
+}
+
 function resetBlurUI(){
   blurMarks = [];
   el.blurSec.classList.remove("show");
@@ -428,6 +461,9 @@ function resetBlurUI(){
   el.blurLoading.style.display = "";
   el.blurLoading.textContent = "画像を読み込み中…";
   el.blurHintText.textContent = T.blurHint;
+  el.scrubRow.classList.remove("show");
+  el.scrubSlider.value = "0";
+  cleanupScrubVideo();
 }
 
 function updateBlurHint(){
@@ -514,7 +550,7 @@ function prepareBlurStage(file){
     const url = URL.createObjectURL(file);
     let seeked = false;
 
-    const cleanup = () => {
+    const cleanupOnFail = () => {
       URL.revokeObjectURL(url);
       video.remove();
     };
@@ -522,7 +558,7 @@ function prepareBlurStage(file){
     const timer = setTimeout(() => {
       if (myToken !== blurFrameToken || seeked) return;
       giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。");
-      cleanup();
+      cleanupOnFail();
     }, 8000);
 
     video.addEventListener("loadedmetadata", () => {
@@ -536,17 +572,63 @@ function prepareBlurStage(file){
       clearTimeout(timer);
       finish(() => el.blurCanvas.getContext("2d").drawImage(video, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
              video.videoWidth, video.videoHeight);
-      cleanup();
+      // 動画は破棄せず、サムネイル選び(スクラブ)用に保持しておく
+      scrubVideo = video;
+      scrubVideoUrl = url;
+      const d = video.duration;
+      if (isFinite(d) && d > 0){
+        el.scrubSlider.value = String(Math.round((video.currentTime / d) * 1000));
+        el.scrubRow.classList.add("show");
+      }
     });
     video.addEventListener("error", () => {
       clearTimeout(timer);
       giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。");
-      cleanup();
+      cleanupOnFail();
     });
     video.src = url;
     video.load();
   }
 }
+
+// サムネイル選びのスライダー操作
+function seekScrubTo(ratio){
+  if (!scrubVideo) return;
+  const d = scrubVideo.duration;
+  if (!isFinite(d) || d <= 0) return;
+
+  if (scrubSeeking){
+    scrubPendingRatio = ratio;   // シーク中に来た分は1回だけ後で反映
+    return;
+  }
+  scrubSeeking = true;
+
+  const onSeeked = () => {
+    scrubVideo.removeEventListener("seeked", onSeeked);
+    const canvas = el.blurCanvas;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(scrubVideo, 0, 0, canvas.width, canvas.height);
+    canvas.__baseFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // フレームが変わったので、それまでの位置指定はリセットする
+    blurMarks = [];
+    redrawBlurMarks();
+    updateBlurHint();
+    scrubSeeking = false;
+
+    if (scrubPendingRatio !== null){
+      const next = scrubPendingRatio;
+      scrubPendingRatio = null;
+      seekScrubTo(next);
+    }
+  };
+  scrubVideo.addEventListener("seeked", onSeeked);
+  scrubVideo.currentTime = Math.max(0, Math.min(d, d * ratio));
+}
+
+el.scrubSlider.addEventListener("input", () => {
+  if (!scrubVideo || !el.blurCanvas.__ready) return;
+  seekScrubTo(Number(el.scrubSlider.value) / 1000);
+});
 
 // ---- タップ(追加) / ドラッグ(位置調整) / ダブルタップ(削除) / ピンチ(大きさ調整) ----
 function touchPointRatio(t, rect){
