@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-28c  (投稿本数の上限を操作パネルから変更可能に)
+  BUILD: 2026-07-31  (顔ぼかし指定(任意)機能を追加)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -90,6 +90,26 @@
   .dial.is-disabled{cursor:default;opacity:.55}
   .dial.is-busy{cursor:progress}
   .dial:focus-within .dial-face{outline:2px solid var(--amber);outline-offset:2px}
+
+  /* ---- 顔ぼかし指定(任意) ---- */
+  .blurSec{margin-top:22px;display:none}
+  .blurSec.show{display:block}
+  .blurSec .blurHead{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+  .blurSec .blurTitle{font-size:12px;font-weight:700;color:var(--muted);letter-spacing:.04em}
+  .blurSec .blurReset{
+    background:none;border:0;color:var(--amber-soft);font-size:12px;font-family:inherit;
+    cursor:pointer;padding:2px 0;text-decoration:underline;
+  }
+  .blurSec .blurReset:disabled{color:var(--muted);text-decoration:none;cursor:default}
+  .blurStage{
+    position:relative;width:100%;border-radius:12px;overflow:hidden;
+    background:var(--ink-2);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;min-height:120px;
+  }
+  .blurStage canvas{width:100%;display:block;touch-action:manipulation}
+  .blurStage .blurLoading{position:absolute;color:var(--muted);font-size:12px}
+  .blurHint{margin:8px 0 0;font-size:11px;color:var(--muted);line-height:1.6}
+  .blurCount{font-size:11px;color:var(--amber-soft);font-weight:700}
 
   /* ---- form ---- */
   .field{margin-top:26px}
@@ -202,6 +222,18 @@
       </span>
     </label>
 
+    <div class="blurSec" id="blurSec">
+      <div class="blurHead">
+        <span class="blurTitle" id="blurTitle"></span>
+        <button type="button" class="blurReset" id="blurReset" disabled>指定をやり直す</button>
+      </div>
+      <div class="blurStage" id="blurStage">
+        <span class="blurLoading" id="blurLoading">画像を読み込み中…</span>
+        <canvas id="blurCanvas"></canvas>
+      </div>
+      <p class="blurHint" id="blurHintText"></p>
+    </div>
+
     <div class="field">
       <label class="lbl" for="nick">おなまえ（ニックネーム可）</label>
       <input type="text" id="nick" maxlength="20" placeholder="例：たけし" autocomplete="nickname">
@@ -267,7 +299,9 @@ const APP_CONFIG = {
       "ご入力いただいたニックネームは、映像のエンドロールに表示される場合があります。"
     ],
     closedTitle: "受付は終了しました",
-    closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。"
+    closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。",
+    blurTitle: "ぼかしてほしい人はいますか？（任意）",
+    blurHint: "映っている人をタップすると、その方だけぼかして仕上げます。もう一度タップすると解除できます。指定しなくても、そのまま投稿できます。"
   }
 };
 
@@ -297,7 +331,10 @@ const el = {
   fileVideo:$("fileVideo"), filePhoto:$("filePhoto"),
   nick:$("nick"), consent:$("consent"), consentText:$("consentText"),
   send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
-  closedTitle:$("closedTitle"), closedBody:$("closedBody")
+  closedTitle:$("closedTitle"), closedBody:$("closedBody"),
+  blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
+  blurStage:$("blurStage"), blurLoading:$("blurLoading"),
+  blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText")
 };
 
 // ---- 文言の流し込み ----
@@ -307,6 +344,8 @@ el.lead.textContent = T.lead;
 el.consentText.textContent = T.consent;
 el.closedTitle.textContent = T.closedTitle;
 el.closedBody.textContent = T.closedBody;
+el.blurTitle.textContent = T.blurTitle;
+el.blurHintText.textContent = T.blurHint;
 el.notes.innerHTML = T.notes.map((n) => `<li></li>`).join("");
 [...el.notes.children].forEach((li, i) => { li.textContent = T.notes[i]; });
 
@@ -317,6 +356,11 @@ let picked = null;
 let uploading = false;
 let mine = {};      // uploadId -> { fileName, storagePath, at }
 let isClosed = false;
+
+// ---- 顔ぼかし指定(任意) ----
+let blurMarks = [];         // [{ xRatio, yRatio }]
+let blurFrameToken = 0;     // 選び直しの競合を防ぐための連番
+const BLUR_MARK_RATIO = 0.16;   // タップ位置を中心に、フレーム短辺のこの割合を1辺として切り出す
 
 // ---- ユーティリティ ----
 function mb(bytes){
@@ -365,6 +409,141 @@ function faceDone(){
   setRing(1);
 }
 
+// ---- 顔ぼかし指定(任意) ----
+// 選んだ動画/写真から1コマだけ切り出してキャンバスに表示し、
+// タップされた位置を中心に小さな参照画像を作る。ここでは「顔検出」はせず、
+// 単純にタップ位置周辺を切り出すだけ(検出・照合は受信側で行う想定)。
+
+function resetBlurUI(){
+  blurMarks = [];
+  el.blurSec.classList.remove("show");
+  el.blurReset.disabled = true;
+  const ctx = el.blurCanvas.getContext("2d");
+  if (ctx) ctx.clearRect(0, 0, el.blurCanvas.width, el.blurCanvas.height);
+  el.blurCanvas.__baseFrame = null;
+  el.blurCanvas.__ready = false;
+  el.blurLoading.style.display = "";
+  el.blurLoading.textContent = "画像を読み込み中…";
+  el.blurHintText.textContent = T.blurHint;
+}
+
+function updateBlurHint(){
+  const base = T.blurHint;
+  el.blurHintText.textContent = blurMarks.length > 0
+    ? base + `（現在 ${blurMarks.length} 名を指定中）`
+    : base;
+  el.blurReset.disabled = blurMarks.length === 0;
+}
+
+function redrawBlurMarks(){
+  const canvas = el.blurCanvas;
+  const ctx = canvas.getContext("2d");
+  if (canvas.__baseFrame) ctx.putImageData(canvas.__baseFrame, 0, 0);
+  const rMin = Math.min(canvas.width, canvas.height) * BLUR_MARK_RATIO;
+  blurMarks.forEach((m) => {
+    const cx = m.xRatio * canvas.width;
+    const cy = m.yRatio * canvas.height;
+    ctx.beginPath();
+    ctx.arc(cx, cy, rMin / 2, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(242,177,56,.28)";
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#F2B138";
+    ctx.stroke();
+  });
+}
+
+// 選んだファイルから1コマ抜き出してキャンバスにセットする
+function prepareBlurStage(file){
+  const myToken = ++blurFrameToken;
+  resetBlurUI();
+  el.blurSec.classList.add("show");
+
+  const finish = (drawFn, w, h) => {
+    if (myToken !== blurFrameToken) return; // 途中で別のファイルに変わっていたら破棄
+    const canvas = el.blurCanvas;
+    const maxW = 460;
+    const scale = Math.min(1, maxW / w);
+    canvas.width = Math.round(w * scale);
+    canvas.height = Math.round(h * scale);
+    drawFn();
+    canvas.__baseFrame = canvas.getContext("2d").getImageData(0, 0, canvas.width, canvas.height);
+    el.blurLoading.style.display = "none";
+    canvas.__ready = true;
+  };
+
+  if (isImage(file)){
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      finish(() => el.blurCanvas.getContext("2d").drawImage(img, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
+             img.naturalWidth, img.naturalHeight);
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => { el.blurLoading.textContent = "プレビューを読み込めませんでした(投稿には影響ありません)"; };
+    img.src = url;
+  } else {
+    const video = document.createElement("video");
+    video.muted = true;
+    video.playsInline = true;
+    const url = URL.createObjectURL(file);
+    video.addEventListener("loadedmetadata", () => {
+      if (myToken !== blurFrameToken) return;
+      video.currentTime = Math.min(1, (video.duration || 2) / 2);
+    });
+    video.addEventListener("seeked", () => {
+      finish(() => el.blurCanvas.getContext("2d").drawImage(video, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
+             video.videoWidth, video.videoHeight);
+      URL.revokeObjectURL(url);
+    });
+    video.addEventListener("error", () => {
+      el.blurLoading.textContent = "プレビューを読み込めませんでした(投稿には影響ありません)";
+    });
+    video.src = url;
+  }
+}
+
+el.blurCanvas.addEventListener("click", (e) => {
+  if (!el.blurCanvas.__ready) return;
+  const rect = el.blurCanvas.getBoundingClientRect();
+  const xRatio = (e.clientX - rect.left) / rect.width;
+  const yRatio = (e.clientY - rect.top) / rect.height;
+
+  // 既存マークの近くをタップしたら解除する
+  const hitRadius = BLUR_MARK_RATIO * 0.6;
+  const idx = blurMarks.findIndex((m) =>
+    Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio) < hitRadius);
+
+  if (idx >= 0) blurMarks.splice(idx, 1);
+  else blurMarks.push({ xRatio, yRatio });
+
+  redrawBlurMarks();
+  updateBlurHint();
+});
+
+el.blurReset.addEventListener("click", () => {
+  blurMarks = [];
+  redrawBlurMarks();
+  updateBlurHint();
+});
+
+// マーク周辺を切り出して小さなJPEGにする(参照用)
+function cropMarkToBlob(mark){
+  const canvas = el.blurCanvas;
+  const side = Math.min(canvas.width, canvas.height) * BLUR_MARK_RATIO * 2;
+  const sx = Math.max(0, mark.xRatio * canvas.width - side / 2);
+  const sy = Math.max(0, mark.yRatio * canvas.height - side / 2);
+  const sw = Math.min(side, canvas.width - sx);
+  const sh = Math.min(side, canvas.height - sy);
+
+  const out = document.createElement("canvas");
+  out.width = 160; out.height = 160;
+  const octx = out.getContext("2d");
+  octx.drawImage(canvas, sx, sy, sw, sh, 0, 0, 160, 160);
+  return new Promise((resolve) => out.toBlob(resolve, "image/jpeg", 0.85));
+}
+
+
 let pickMode = "video";   // "video" か "photo"。ボタンで切り替える。
 
 function currentInput(){ return pickMode === "photo" ? el.filePhoto : el.fileVideo; }
@@ -377,6 +556,7 @@ function setPickMode(mode){
   el.dial.setAttribute("for", mode === "photo" ? "filePhoto" : "fileVideo");
   if (!uploading) faceIdle();
   picked = null;
+  resetBlurUI();
   refreshSendButton();
 }
 
@@ -459,7 +639,7 @@ function onFileChosen(){
   if (!f) return;
   clearMsg();
   if (f.size > MAX_BYTES){
-    picked = null; faceIdle();
+    picked = null; faceIdle(); resetBlurUI();
     const kind = pickMode === "photo" ? "写真" : "動画";
     showMsg(`ファイルが大きすぎます（${mb(f.size)}）。${APP_CONFIG.maxFileSizeMB} MB までの${kind}をお選びください。`, "err");
     refreshSendButton();
@@ -467,6 +647,7 @@ function onFileChosen(){
   }
   picked = f;
   facePicked(f.name, f.size, isImage(f));
+  prepareBlurStage(f);
   if (f.size > WARN_BYTES){
     showMsg(`${mb(f.size)}あります。送信に数分かかることがあります。完了表示が出るまで、この画面を開いたままお待ちください。`, "warn");
   }
@@ -518,6 +699,18 @@ el.send.addEventListener("click", () => {
     },
     async () => {
       try {
+        // 顔ぼかし指定(任意)があれば、参照用の切り出し画像を先にアップロードする
+        let blurTargets = [];
+        if (blurMarks.length > 0){
+          const uploads = await Promise.all(blurMarks.map(async (m, i) => {
+            const blob = await cropMarkToBlob(m);
+            const refPath = `events/${EV}/uploads/${uid}/${id}_blur_${i}${ext}`.replace(/\.[^.]+$/, ".jpg");
+            await uploadBytesResumable(stRef(storage, refPath), blob, { contentType: "image/jpeg" });
+            return { storagePath: refPath, xRatio: m.xRatio, yRatio: m.yRatio, sizeRatio: BLUR_MARK_RATIO * 2 };
+          }));
+          blurTargets = uploads;
+        }
+
         const rec = {
           nickname, uid,
           fileName: f.name,
@@ -526,6 +719,7 @@ el.send.addEventListener("click", () => {
           uploadedAt: serverTimestamp(),
           status: "uploaded"
         };
+        if (blurTargets.length > 0) rec.blurTargets = blurTargets;
         await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
         await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
           fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
@@ -535,6 +729,7 @@ el.send.addEventListener("click", () => {
         showMsg("投稿を受け付けました。ありがとうございます。", "ok");
         picked = null;
         currentInput().value = "";
+        resetBlurUI();
         renderList();
         setTimeout(() => { if (!uploading) faceIdle(); }, 2600);
       } catch (e){
