@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31e  (指2本のピンチでマークの大きさを調整可能に。参照写真からマーカー丸を除去)
+  BUILD: 2026-07-31f  (丸のドラッグ移動に対応、削除操作をダブルタップに変更)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -301,7 +301,7 @@ const APP_CONFIG = {
     closedTitle: "受付は終了しました",
     closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。",
     blurTitle: "ぼかさない人（主役）はいますか？（任意）",
-    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。丸を指2本でつまむと大きさを調整できます。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。もう一度タップすると指定を解除できます。"
+    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。丸はドラッグで位置を、指2本でつまむと大きさを調整できます。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。ダブルタップで指定を解除できます。"
   }
 };
 
@@ -548,62 +548,133 @@ function prepareBlurStage(file){
   }
 }
 
-el.blurCanvas.addEventListener("click", (e) => {
-  if (!el.blurCanvas.__ready) return;
-  if (pinchState) return;   // ピンチ操作の直後に誤ってタップ扱いされるのを防ぐ
-  const rect = el.blurCanvas.getBoundingClientRect();
-  const xRatio = (e.clientX - rect.left) / rect.width;
-  const yRatio = (e.clientY - rect.top) / rect.height;
-
-  // 既存マークの近くをタップしたら解除する(円のサイズに応じて判定範囲も変える)
-  const idx = blurMarks.findIndex((m) =>
-    Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio) < (m.rRatio || BLUR_MARK_RATIO) * 0.6);
-
-  if (idx >= 0) blurMarks.splice(idx, 1);
-  else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO });
-
-  redrawBlurMarks();
-  updateBlurHint();
-});
-
-// ---- ピンチでマークの大きさを調整 ----
+// ---- タップ(追加) / ドラッグ(位置調整) / ダブルタップ(削除) / ピンチ(大きさ調整) ----
 function touchPointRatio(t, rect){
   return { xRatio: (t.clientX - rect.left) / rect.width, yRatio: (t.clientY - rect.top) / rect.height };
 }
 function touchDist(t1, t2){
   return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 }
-function nearestMarkIndex(xRatio, yRatio){
+function nearestMarkIndex(xRatio, yRatio, toleranceMult){
   let best = -1, bestDist = Infinity;
   blurMarks.forEach((m, i) => {
     const d = Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio);
     if (d < bestDist){ bestDist = d; best = i; }
   });
-  // 極端に離れた場所でのピンチは対象なしとする
-  return (best >= 0 && bestDist < (blurMarks[best].rRatio || BLUR_MARK_RATIO) * 1.8) ? best : -1;
+  // 極端に離れた場所でのピンチ・タップは対象なしとする
+  return (best >= 0 && bestDist < (blurMarks[best].rRatio || BLUR_MARK_RATIO) * toleranceMult) ? best : -1;
 }
 
-el.blurCanvas.addEventListener("touchstart", (e) => {
-  if (!el.blurCanvas.__ready || e.touches.length !== 2 || blurMarks.length === 0) return;
-  const rect = el.blurCanvas.getBoundingClientRect();
-  const [t1, t2] = e.touches;
-  const mid = touchPointRatio({ clientX: (t1.clientX + t2.clientX) / 2, clientY: (t1.clientY + t2.clientY) / 2 }, rect);
-  const idx = nearestMarkIndex(mid.xRatio, mid.yRatio);
-  if (idx < 0) return;
-  e.preventDefault();
-  pinchState = { markIndex: idx, startDist: touchDist(t1, t2), startRatio: blurMarks[idx].rRatio || BLUR_MARK_RATIO };
-}, { passive: false });
+let lastTapInfo = null;   // { markIndex, time } ダブルタップ判定用
+let dragState = null;     // { markIndex, moved } 1本指ドラッグ中の状態
+const DOUBLE_TAP_MS = 350;
+const DRAG_MOVE_THRESHOLD = 0.015;   // これ以上動いたら「タップ」ではなく「ドラッグ」とみなす
 
-el.blurCanvas.addEventListener("touchmove", (e) => {
-  if (!pinchState || e.touches.length !== 2) return;
-  e.preventDefault();
-  const [t1, t2] = e.touches;
-  const dist = touchDist(t1, t2);
-  const scale = dist / pinchState.startDist;
-  const next = Math.max(BLUR_MARK_MIN, Math.min(BLUR_MARK_MAX, pinchState.startRatio * scale));
-  blurMarks[pinchState.markIndex].rRatio = next;
-  redrawBlurMarks();
-}, { passive: false });
+const HAS_TOUCH = ("ontouchstart" in window);
+
+if (HAS_TOUCH){
+  el.blurCanvas.addEventListener("touchstart", (e) => {
+    if (!el.blurCanvas.__ready) return;
+    const rect = el.blurCanvas.getBoundingClientRect();
+
+    if (e.touches.length === 2){
+      dragState = null;
+      if (blurMarks.length === 0) return;
+      const [t1, t2] = e.touches;
+      const mid = touchPointRatio({ clientX: (t1.clientX + t2.clientX) / 2, clientY: (t1.clientY + t2.clientY) / 2 }, rect);
+      const idx = nearestMarkIndex(mid.xRatio, mid.yRatio, 1.8);
+      if (idx < 0) return;
+      e.preventDefault();
+      pinchState = { markIndex: idx, startDist: touchDist(t1, t2), startRatio: blurMarks[idx].rRatio || BLUR_MARK_RATIO };
+      return;
+    }
+
+    if (e.touches.length !== 1) return;
+    pinchState = null;
+    const p = touchPointRatio(e.touches[0], rect);
+    dragState = { markIndex: nearestMarkIndex(p.xRatio, p.yRatio, 0.7), moved: false };
+  }, { passive: false });
+
+  el.blurCanvas.addEventListener("touchmove", (e) => {
+    const rect = el.blurCanvas.getBoundingClientRect();
+
+    if (pinchState && e.touches.length === 2){
+      e.preventDefault();
+      const [t1, t2] = e.touches;
+      const dist = touchDist(t1, t2);
+      const scale = dist / pinchState.startDist;
+      const next = Math.max(BLUR_MARK_MIN, Math.min(BLUR_MARK_MAX, pinchState.startRatio * scale));
+      blurMarks[pinchState.markIndex].rRatio = next;
+      redrawBlurMarks();
+      return;
+    }
+
+    if (dragState && dragState.markIndex >= 0 && e.touches.length === 1){
+      const p = touchPointRatio(e.touches[0], rect);
+      const m = blurMarks[dragState.markIndex];
+      const d = Math.hypot(p.xRatio - m.xRatio, p.yRatio - m.yRatio);
+      if (dragState.moved || d > DRAG_MOVE_THRESHOLD){
+        dragState.moved = true;
+        e.preventDefault();
+        m.xRatio = Math.max(0, Math.min(1, p.xRatio));
+        m.yRatio = Math.max(0, Math.min(1, p.yRatio));
+        redrawBlurMarks();
+      }
+    }
+  }, { passive: false });
+
+  el.blurCanvas.addEventListener("touchend", (e) => {
+    if (pinchState){ endPinch(); return; }
+    if (!dragState) return;
+    const info = dragState;
+    dragState = null;
+
+    if (info.moved){
+      updateBlurHint();   // ドラッグで位置調整しただけ。追加・削除はしない
+      return;
+    }
+
+    const rect = el.blurCanvas.getBoundingClientRect();
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!t) return;
+    const p = touchPointRatio(t, rect);
+
+    if (info.markIndex >= 0){
+      // 既存の丸をタップ → ダブルタップなら削除。シングルタップだけでは何もしない
+      // (連続タップでの位置合わせを妨げないため)
+      const now = Date.now();
+      if (lastTapInfo && lastTapInfo.markIndex === info.markIndex && (now - lastTapInfo.time) < DOUBLE_TAP_MS){
+        blurMarks.splice(info.markIndex, 1);
+        redrawBlurMarks();
+        updateBlurHint();
+        lastTapInfo = null;
+      } else {
+        lastTapInfo = { markIndex: info.markIndex, time: now };
+      }
+    } else {
+      // 何もない場所をタップ → 新規追加
+      blurMarks.push({ xRatio: p.xRatio, yRatio: p.yRatio, rRatio: BLUR_MARK_RATIO });
+      redrawBlurMarks();
+      updateBlurHint();
+      lastTapInfo = null;
+    }
+  }, { passive: true });
+
+  el.blurCanvas.addEventListener("touchcancel", () => { dragState = null; endPinch(); });
+} else {
+  // タッチ非対応環境(PCブラウザでの確認用)向けの簡易フォールバック
+  el.blurCanvas.addEventListener("click", (e) => {
+    if (!el.blurCanvas.__ready) return;
+    const rect = el.blurCanvas.getBoundingClientRect();
+    const xRatio = (e.clientX - rect.left) / rect.width;
+    const yRatio = (e.clientY - rect.top) / rect.height;
+    const idx = nearestMarkIndex(xRatio, yRatio, 0.7);
+    if (idx >= 0) blurMarks.splice(idx, 1);
+    else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO });
+    redrawBlurMarks();
+    updateBlurHint();
+  });
+}
 
 function endPinch(){
   if (!pinchState) return;
@@ -612,8 +683,6 @@ function endPinch(){
   // フラグはすぐに消さず少し遅らせて解除する。
   setTimeout(() => { pinchState = null; }, 300);
 }
-el.blurCanvas.addEventListener("touchend", endPinch);
-el.blurCanvas.addEventListener("touchcancel", endPinch);
 
 el.blurReset.addEventListener("click", () => {
   blurMarks = [];
