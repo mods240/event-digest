@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31  (顔ぼかし指定(任意)機能を追加)
+  BUILD: 2026-07-31b  (顔ぼかし指定(任意)機能。iOS Safariでの読み込み固まり対策・タイムアウト保険つき)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -472,34 +472,75 @@ function prepareBlurStage(file){
     canvas.__ready = true;
   };
 
+  const giveUp = (msg) => {
+    if (myToken !== blurFrameToken) return;
+    el.blurSec.classList.remove("show");   // 失敗時はセクションごと隠し、投稿の妨げにしない
+    el.blurLoading.textContent = "";
+    if (msg) showMsg(msg, "warn");
+  };
+
   if (isImage(file)){
     const img = new Image();
     const url = URL.createObjectURL(file);
+    const imgTimer = setTimeout(() => {
+      giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。");
+      URL.revokeObjectURL(url);
+    }, 8000);
     img.onload = () => {
+      clearTimeout(imgTimer);
       finish(() => el.blurCanvas.getContext("2d").drawImage(img, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
              img.naturalWidth, img.naturalHeight);
       URL.revokeObjectURL(url);
     };
-    img.onerror = () => { el.blurLoading.textContent = "プレビューを読み込めませんでした(投稿には影響ありません)"; };
+    img.onerror = () => { clearTimeout(imgTimer); giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。"); URL.revokeObjectURL(url); };
     img.src = url;
   } else {
+    // iOS Safari 対策: video要素をDOMに実際に追加しないと
+    // loadedmetadata / seeked が発火しないことがあるため、画面外に配置して追加する。
     const video = document.createElement("video");
     video.muted = true;
+    video.defaultMuted = true;
     video.playsInline = true;
+    video.setAttribute("playsinline", "");
+    video.setAttribute("muted", "");
+    video.preload = "auto";
+    video.style.cssText = "position:absolute;width:1px;height:1px;opacity:0;pointer-events:none;left:-9999px;top:-9999px";
+    document.body.appendChild(video);
+
     const url = URL.createObjectURL(file);
+    let seeked = false;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(url);
+      video.remove();
+    };
+
+    const timer = setTimeout(() => {
+      if (myToken !== blurFrameToken || seeked) return;
+      giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。");
+      cleanup();
+    }, 8000);
+
     video.addEventListener("loadedmetadata", () => {
       if (myToken !== blurFrameToken) return;
-      video.currentTime = Math.min(1, (video.duration || 2) / 2);
+      const d = video.duration;
+      video.currentTime = (isFinite(d) && d > 0) ? Math.min(1, d / 2) : 0.1;
     });
     video.addEventListener("seeked", () => {
+      if (seeked) return; // 一部端末で複数回発火することがあるため一度だけ処理
+      seeked = true;
+      clearTimeout(timer);
       finish(() => el.blurCanvas.getContext("2d").drawImage(video, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
              video.videoWidth, video.videoHeight);
-      URL.revokeObjectURL(url);
+      cleanup();
     });
     video.addEventListener("error", () => {
-      el.blurLoading.textContent = "プレビューを読み込めませんでした(投稿には影響ありません)";
+      clearTimeout(timer);
+      giveUp("プレビューを表示できませんでしたが、そのまま投稿できます。");
+      cleanup();
     });
     video.src = url;
+    video.load();
   }
 }
 
