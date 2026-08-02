@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31c  (「ぼかさない人(主役)を選ぶ」方式に変更。送信エラーの原因特定用ログを追加)
+  BUILD: 2026-07-31d  (顔指定アップロード失敗時の詳細コードを画面にも表示)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -743,6 +743,7 @@ el.send.addEventListener("click", () => {
         // 「残したい人(=ぼかさない人)」の指定(任意)があれば、参照用の切り出し画像を先にアップロードする。
         // ここが失敗しても、動画本体の投稿自体は必ず完了させる(1件ずつtry/catchする)。
         let keepFaces = [];
+        let keepFaceErrorDetail = "";
         if (blurMarks.length > 0){
           const results = await Promise.allSettled(blurMarks.map(async (m, i) => {
             const blob = await cropMarkToBlob(m);
@@ -753,7 +754,11 @@ el.send.addEventListener("click", () => {
           }));
           keepFaces = results.filter(r => r.status === "fulfilled").map(r => r.value);
           const failed = results.filter(r => r.status === "rejected");
-          if (failed.length > 0) console.error("[event-digest] keepFaces upload failed:", failed.map(r => r.reason));
+          if (failed.length > 0){
+            console.error("[event-digest] keepFaces upload failed:", failed.map(r => r.reason));
+            const first = failed[0].reason;
+            keepFaceErrorDetail = (first && (first.code || first.message)) ? String(first.code || first.message) : String(first);
+          }
         }
 
         const rec = {
@@ -772,7 +777,7 @@ el.send.addEventListener("click", () => {
         mine[id] = { fileName: f.name, storagePath, bytes: f.size };
         faceDone();
         if (blurMarks.length > 0 && keepFaces.length === 0){
-          showMsg("投稿は受け付けましたが、顔の指定は反映できませんでした。ご了承ください。", "warn");
+          showMsg(`投稿は受け付けましたが、顔の指定は反映できませんでした。ご了承ください。（詳細: ${keepFaceErrorDetail}）`, "warn");
         } else {
           showMsg("投稿を受け付けました。ありがとうございます。", "ok");
         }
