@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31d  (顔指定アップロード失敗時の詳細コードを画面にも表示)
+  BUILD: 2026-07-31e  (指2本のピンチでマークの大きさを調整可能に。参照写真からマーカー丸を除去)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -106,7 +106,7 @@
     background:var(--ink-2);border:1px solid var(--line);
     display:flex;align-items:center;justify-content:center;min-height:120px;
   }
-  .blurStage canvas{width:100%;display:block;touch-action:manipulation}
+  .blurStage canvas{width:100%;display:block;touch-action:none}
   .blurStage .blurLoading{position:absolute;color:var(--muted);font-size:12px}
   .blurHint{margin:8px 0 0;font-size:11px;color:var(--muted);line-height:1.6}
   .blurCount{font-size:11px;color:var(--amber-soft);font-weight:700}
@@ -301,7 +301,7 @@ const APP_CONFIG = {
     closedTitle: "受付は終了しました",
     closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。",
     blurTitle: "ぼかさない人（主役）はいますか？（任意）",
-    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。もう一度タップすると指定を解除できます。"
+    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。丸を指2本でつまむと大きさを調整できます。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。もう一度タップすると指定を解除できます。"
   }
 };
 
@@ -358,9 +358,12 @@ let mine = {};      // uploadId -> { fileName, storagePath, at }
 let isClosed = false;
 
 // ---- 顔ぼかし指定(任意) ----
-let blurMarks = [];         // [{ xRatio, yRatio }]
+let blurMarks = [];         // [{ xRatio, yRatio, rRatio }]
 let blurFrameToken = 0;     // 選び直しの競合を防ぐための連番
-const BLUR_MARK_RATIO = 0.16;   // タップ位置を中心に、フレーム短辺のこの割合を1辺として切り出す
+const BLUR_MARK_RATIO = 0.16;   // 新規タップ時の既定サイズ(フレーム短辺に対する割合)
+const BLUR_MARK_MIN = 0.05;     // ピンチで縮小できる下限
+const BLUR_MARK_MAX = 0.55;     // ピンチで拡大できる上限
+let pinchState = null;      // { markIndex, startDist, startRatio }
 
 // ---- ユーティリティ ----
 function mb(bytes){
@@ -439,12 +442,13 @@ function redrawBlurMarks(){
   const canvas = el.blurCanvas;
   const ctx = canvas.getContext("2d");
   if (canvas.__baseFrame) ctx.putImageData(canvas.__baseFrame, 0, 0);
-  const rMin = Math.min(canvas.width, canvas.height) * BLUR_MARK_RATIO;
+  const minSide = Math.min(canvas.width, canvas.height);
   blurMarks.forEach((m) => {
     const cx = m.xRatio * canvas.width;
     const cy = m.yRatio * canvas.height;
+    const r = (minSide * (m.rRatio || BLUR_MARK_RATIO)) / 2;
     ctx.beginPath();
-    ctx.arc(cx, cy, rMin / 2, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
     ctx.fillStyle = "rgba(242,177,56,.28)";
     ctx.fill();
     ctx.lineWidth = 2;
@@ -546,21 +550,70 @@ function prepareBlurStage(file){
 
 el.blurCanvas.addEventListener("click", (e) => {
   if (!el.blurCanvas.__ready) return;
+  if (pinchState) return;   // ピンチ操作の直後に誤ってタップ扱いされるのを防ぐ
   const rect = el.blurCanvas.getBoundingClientRect();
   const xRatio = (e.clientX - rect.left) / rect.width;
   const yRatio = (e.clientY - rect.top) / rect.height;
 
-  // 既存マークの近くをタップしたら解除する
-  const hitRadius = BLUR_MARK_RATIO * 0.6;
+  // 既存マークの近くをタップしたら解除する(円のサイズに応じて判定範囲も変える)
   const idx = blurMarks.findIndex((m) =>
-    Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio) < hitRadius);
+    Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio) < (m.rRatio || BLUR_MARK_RATIO) * 0.6);
 
   if (idx >= 0) blurMarks.splice(idx, 1);
-  else blurMarks.push({ xRatio, yRatio });
+  else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO });
 
   redrawBlurMarks();
   updateBlurHint();
 });
+
+// ---- ピンチでマークの大きさを調整 ----
+function touchPointRatio(t, rect){
+  return { xRatio: (t.clientX - rect.left) / rect.width, yRatio: (t.clientY - rect.top) / rect.height };
+}
+function touchDist(t1, t2){
+  return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+}
+function nearestMarkIndex(xRatio, yRatio){
+  let best = -1, bestDist = Infinity;
+  blurMarks.forEach((m, i) => {
+    const d = Math.hypot(m.xRatio - xRatio, m.yRatio - yRatio);
+    if (d < bestDist){ bestDist = d; best = i; }
+  });
+  // 極端に離れた場所でのピンチは対象なしとする
+  return (best >= 0 && bestDist < (blurMarks[best].rRatio || BLUR_MARK_RATIO) * 1.8) ? best : -1;
+}
+
+el.blurCanvas.addEventListener("touchstart", (e) => {
+  if (!el.blurCanvas.__ready || e.touches.length !== 2 || blurMarks.length === 0) return;
+  const rect = el.blurCanvas.getBoundingClientRect();
+  const [t1, t2] = e.touches;
+  const mid = touchPointRatio({ clientX: (t1.clientX + t2.clientX) / 2, clientY: (t1.clientY + t2.clientY) / 2 }, rect);
+  const idx = nearestMarkIndex(mid.xRatio, mid.yRatio);
+  if (idx < 0) return;
+  e.preventDefault();
+  pinchState = { markIndex: idx, startDist: touchDist(t1, t2), startRatio: blurMarks[idx].rRatio || BLUR_MARK_RATIO };
+}, { passive: false });
+
+el.blurCanvas.addEventListener("touchmove", (e) => {
+  if (!pinchState || e.touches.length !== 2) return;
+  e.preventDefault();
+  const [t1, t2] = e.touches;
+  const dist = touchDist(t1, t2);
+  const scale = dist / pinchState.startDist;
+  const next = Math.max(BLUR_MARK_MIN, Math.min(BLUR_MARK_MAX, pinchState.startRatio * scale));
+  blurMarks[pinchState.markIndex].rRatio = next;
+  redrawBlurMarks();
+}, { passive: false });
+
+function endPinch(){
+  if (!pinchState) return;
+  updateBlurHint();
+  // click イベントの誤発火(ピンチ終了直後に合成clickが飛ぶ端末がある)を避けるため、
+  // フラグはすぐに消さず少し遅らせて解除する。
+  setTimeout(() => { pinchState = null; }, 300);
+}
+el.blurCanvas.addEventListener("touchend", endPinch);
+el.blurCanvas.addEventListener("touchcancel", endPinch);
 
 el.blurReset.addEventListener("click", () => {
   blurMarks = [];
@@ -571,16 +624,25 @@ el.blurReset.addEventListener("click", () => {
 // マーク周辺を切り出して小さなJPEGにする(参照用)
 function cropMarkToBlob(mark){
   const canvas = el.blurCanvas;
-  const side = Math.min(canvas.width, canvas.height) * BLUR_MARK_RATIO * 2;
+  if (!canvas.__baseFrame) return Promise.resolve(null);
+
+  // マーカー(丸)が写り込まないよう、クリーンな元フレームから切り出す
+  const clean = document.createElement("canvas");
+  clean.width = canvas.width; clean.height = canvas.height;
+  clean.getContext("2d").putImageData(canvas.__baseFrame, 0, 0);
+
+  const rRatio = mark.rRatio || BLUR_MARK_RATIO;
+  const side = Math.min(canvas.width, canvas.height) * rRatio * 2;
   const sx = Math.max(0, mark.xRatio * canvas.width - side / 2);
   const sy = Math.max(0, mark.yRatio * canvas.height - side / 2);
   const sw = Math.min(side, canvas.width - sx);
   const sh = Math.min(side, canvas.height - sy);
+  if (sw <= 0 || sh <= 0) return Promise.resolve(null);
 
   const out = document.createElement("canvas");
   out.width = 160; out.height = 160;
   const octx = out.getContext("2d");
-  octx.drawImage(canvas, sx, sy, sw, sh, 0, 0, 160, 160);
+  octx.drawImage(clean, sx, sy, sw, sh, 0, 0, 160, 160);
   return new Promise((resolve) => out.toBlob(resolve, "image/jpeg", 0.85));
 }
 
@@ -750,7 +812,7 @@ el.send.addEventListener("click", () => {
             if (!blob) throw new Error("crop-blob-null");
             const refPath = `events/${EV}/uploads/${uid}/${id}_keep_${i}.jpg`;
             await uploadBytesResumable(stRef(storage, refPath), blob, { contentType: "image/jpeg" });
-            return { storagePath: refPath, xRatio: m.xRatio, yRatio: m.yRatio, sizeRatio: BLUR_MARK_RATIO * 2 };
+            return { storagePath: refPath, xRatio: m.xRatio, yRatio: m.yRatio, sizeRatio: (m.rRatio || BLUR_MARK_RATIO) * 2 };
           }));
           keepFaces = results.filter(r => r.status === "fulfilled").map(r => r.value);
           const failed = results.filter(r => r.status === "rejected");
