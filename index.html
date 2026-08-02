@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31b  (顔ぼかし指定(任意)機能。iOS Safariでの読み込み固まり対策・タイムアウト保険つき)
+  BUILD: 2026-07-31c  (「ぼかさない人(主役)を選ぶ」方式に変更。送信エラーの原因特定用ログを追加)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -300,8 +300,8 @@ const APP_CONFIG = {
     ],
     closedTitle: "受付は終了しました",
     closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。",
-    blurTitle: "ぼかしてほしい人はいますか？（任意）",
-    blurHint: "映っている人をタップすると、その方だけぼかして仕上げます。もう一度タップすると解除できます。指定しなくても、そのまま投稿できます。"
+    blurTitle: "ぼかさない人（主役）はいますか？（任意）",
+    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。もう一度タップすると指定を解除できます。"
   }
 };
 
@@ -430,7 +430,7 @@ function resetBlurUI(){
 function updateBlurHint(){
   const base = T.blurHint;
   el.blurHintText.textContent = blurMarks.length > 0
-    ? base + `（現在 ${blurMarks.length} 名を指定中）`
+    ? base + `（現在 ${blurMarks.length} 名を「残す人」として指定中）`
     : base;
   el.blurReset.disabled = blurMarks.length === 0;
 }
@@ -740,16 +740,20 @@ el.send.addEventListener("click", () => {
     },
     async () => {
       try {
-        // 顔ぼかし指定(任意)があれば、参照用の切り出し画像を先にアップロードする
-        let blurTargets = [];
+        // 「残したい人(=ぼかさない人)」の指定(任意)があれば、参照用の切り出し画像を先にアップロードする。
+        // ここが失敗しても、動画本体の投稿自体は必ず完了させる(1件ずつtry/catchする)。
+        let keepFaces = [];
         if (blurMarks.length > 0){
-          const uploads = await Promise.all(blurMarks.map(async (m, i) => {
+          const results = await Promise.allSettled(blurMarks.map(async (m, i) => {
             const blob = await cropMarkToBlob(m);
-            const refPath = `events/${EV}/uploads/${uid}/${id}_blur_${i}${ext}`.replace(/\.[^.]+$/, ".jpg");
+            if (!blob) throw new Error("crop-blob-null");
+            const refPath = `events/${EV}/uploads/${uid}/${id}_keep_${i}.jpg`;
             await uploadBytesResumable(stRef(storage, refPath), blob, { contentType: "image/jpeg" });
             return { storagePath: refPath, xRatio: m.xRatio, yRatio: m.yRatio, sizeRatio: BLUR_MARK_RATIO * 2 };
           }));
-          blurTargets = uploads;
+          keepFaces = results.filter(r => r.status === "fulfilled").map(r => r.value);
+          const failed = results.filter(r => r.status === "rejected");
+          if (failed.length > 0) console.error("[event-digest] keepFaces upload failed:", failed.map(r => r.reason));
         }
 
         const rec = {
@@ -760,21 +764,27 @@ el.send.addEventListener("click", () => {
           uploadedAt: serverTimestamp(),
           status: "uploaded"
         };
-        if (blurTargets.length > 0) rec.blurTargets = blurTargets;
+        if (keepFaces.length > 0) rec.keepFaces = keepFaces;
         await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
         await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
           fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
         });
         mine[id] = { fileName: f.name, storagePath, bytes: f.size };
         faceDone();
-        showMsg("投稿を受け付けました。ありがとうございます。", "ok");
+        if (blurMarks.length > 0 && keepFaces.length === 0){
+          showMsg("投稿は受け付けましたが、顔の指定は反映できませんでした。ご了承ください。", "warn");
+        } else {
+          showMsg("投稿を受け付けました。ありがとうございます。", "ok");
+        }
         picked = null;
         currentInput().value = "";
         resetBlurUI();
         renderList();
         setTimeout(() => { if (!uploading) faceIdle(); }, 2600);
       } catch (e){
-        showMsg("受付処理に失敗しました。もう一度お試しください。", "err");
+        console.error("[event-digest] 受付処理エラー:", e);
+        const detail = (e && (e.code || e.message)) ? `（詳細: ${e.code || e.message}）` : "";
+        showMsg(`受付処理に失敗しました。もう一度お試しください。${detail}`, "err");
       } finally {
         window.onbeforeunload = null;
         uploading = false;
