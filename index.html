@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31g  (サムネイル選択スライダーを追加。ドラッグ移動・ダブルタップ削除にも対応)
+  BUILD: 2026-08-02  (🔴ぼかしてほしい人モードを追加。残す人/追加でぼかす人を切り替えて指定可能に)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -101,6 +101,14 @@
     cursor:pointer;padding:2px 0;text-decoration:underline;
   }
   .blurSec .blurReset:disabled{color:var(--muted);text-decoration:none;cursor:default}
+  .blurModeRow{display:flex;gap:8px;margin-bottom:9px}
+  .blurModeBtn{
+    flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);
+    background:transparent;color:var(--light);font-family:inherit;font-size:12.5px;font-weight:700;
+    cursor:pointer;
+  }
+  .blurModeBtn.on{background:var(--amber);border-color:var(--amber);color:#1a1200}
+  .blurModeBtn.on.danger{background:#E5484D;border-color:#E5484D;color:#fff}
   .blurStage{
     position:relative;width:100%;border-radius:12px;overflow:hidden;
     background:var(--ink-2);border:1px solid var(--line);
@@ -242,6 +250,10 @@
         <span class="blurTitle" id="blurTitle"></span>
         <button type="button" class="blurReset" id="blurReset" disabled>指定をやり直す</button>
       </div>
+      <div class="blurModeRow" id="blurModeRow">
+        <button type="button" class="blurModeBtn on" id="blurModeKeep">🟠残す人</button>
+        <button type="button" class="blurModeBtn" id="blurModeBlur">🔴ぼかしてほしい人</button>
+      </div>
       <div class="blurStage" id="blurStage">
         <span class="blurLoading" id="blurLoading">画像を読み込み中…</span>
         <canvas id="blurCanvas"></canvas>
@@ -319,8 +331,8 @@ const APP_CONFIG = {
     ],
     closedTitle: "受付は終了しました",
     closedBody: "たくさんのご投稿をありがとうございました。エンディングをお楽しみに。",
-    blurTitle: "ぼかさない人（主役）はいますか？（任意）",
-    blurHint: "残したい人（主役）をタップしてください。タップした人以外は自動でぼかし候補になります。丸はドラッグで位置を、指2本でつまむと大きさを調整できます。誰もタップしなければ、これまで通り誰もぼかさずに投稿されます。ダブルタップで指定を解除できます。"
+    blurTitle: "顔の指定はありますか？（任意）",
+    blurHint: "🟠残す人（主役）と、🔴ぼかしてほしい人を、上のボタンで切り替えてタップで指定できます。丸はドラッグで位置を、指2本でつまむと大きさを調整できます。何も指定しなければ、これまで通り誰もぼかさずに投稿されます。ダブルタップで指定を解除できます。"
   }
 };
 
@@ -352,6 +364,7 @@ const el = {
   send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
   closedTitle:$("closedTitle"), closedBody:$("closedBody"),
   blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
+  blurModeKeep:$("blurModeKeep"), blurModeBlur:$("blurModeBlur"),
   blurStage:$("blurStage"), blurLoading:$("blurLoading"),
   blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText"),
   scrubRow:$("scrubRow"), scrubSlider:$("scrubSlider")
@@ -378,7 +391,8 @@ let mine = {};      // uploadId -> { fileName, storagePath, at }
 let isClosed = false;
 
 // ---- 顔ぼかし指定(任意) ----
-let blurMarks = [];         // [{ xRatio, yRatio, rRatio }]
+let blurMarks = [];         // [{ xRatio, yRatio, rRatio, mode: 'keep'|'blur' }]
+let blurMode = "keep";      // 今タップすると付くモード
 let blurFrameToken = 0;     // 選び直しの競合を防ぐための連番
 const BLUR_MARK_RATIO = 0.16;   // 新規タップ時の既定サイズ(フレーム短辺に対する割合)
 const BLUR_MARK_MIN = 0.05;     // ピンチで縮小できる下限
@@ -450,8 +464,20 @@ function cleanupScrubVideo(){
   scrubPendingRatio = null;
 }
 
+function setBlurMode(mode){
+  blurMode = mode;
+  if (mode === "keep"){
+    el.blurModeKeep.classList.add("on"); el.blurModeKeep.classList.remove("danger");
+    el.blurModeBlur.classList.remove("on"); el.blurModeBlur.classList.remove("danger");
+  } else {
+    el.blurModeBlur.classList.add("on"); el.blurModeBlur.classList.add("danger");
+    el.blurModeKeep.classList.remove("on");
+  }
+}
+
 function resetBlurUI(){
   blurMarks = [];
+  setBlurMode("keep");
   el.blurSec.classList.remove("show");
   el.blurReset.disabled = true;
   const ctx = el.blurCanvas.getContext("2d");
@@ -468,9 +494,12 @@ function resetBlurUI(){
 
 function updateBlurHint(){
   const base = T.blurHint;
-  el.blurHintText.textContent = blurMarks.length > 0
-    ? base + `（現在 ${blurMarks.length} 名を「残す人」として指定中）`
-    : base;
+  const keepN = blurMarks.filter((m) => m.mode !== "blur").length;
+  const blurN = blurMarks.filter((m) => m.mode === "blur").length;
+  const parts = [];
+  if (keepN) parts.push(`🟠残す人 ${keepN}名`);
+  if (blurN) parts.push(`🔴ぼかしてほしい人 ${blurN}名`);
+  el.blurHintText.textContent = parts.length ? base + `（${parts.join(" / ")}を指定中）` : base;
   el.blurReset.disabled = blurMarks.length === 0;
 }
 
@@ -483,12 +512,13 @@ function redrawBlurMarks(){
     const cx = m.xRatio * canvas.width;
     const cy = m.yRatio * canvas.height;
     const r = (minSide * (m.rRatio || BLUR_MARK_RATIO)) / 2;
+    const isBlur = m.mode === "blur";
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(242,177,56,.28)";
+    ctx.fillStyle = isBlur ? "rgba(229,72,77,.30)" : "rgba(242,177,56,.28)";
     ctx.fill();
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "#F2B138";
+    ctx.strokeStyle = isBlur ? "#E5484D" : "#F2B138";
     ctx.stroke();
   });
 }
@@ -654,6 +684,9 @@ const DRAG_MOVE_THRESHOLD = 0.015;   // これ以上動いたら「タップ」�
 
 const HAS_TOUCH = ("ontouchstart" in window);
 
+el.blurModeKeep.addEventListener("click", () => setBlurMode("keep"));
+el.blurModeBlur.addEventListener("click", () => setBlurMode("blur"));
+
 if (HAS_TOUCH){
   el.blurCanvas.addEventListener("touchstart", (e) => {
     if (!el.blurCanvas.__ready) return;
@@ -735,7 +768,7 @@ if (HAS_TOUCH){
       }
     } else {
       // 何もない場所をタップ → 新規追加
-      blurMarks.push({ xRatio: p.xRatio, yRatio: p.yRatio, rRatio: BLUR_MARK_RATIO });
+      blurMarks.push({ xRatio: p.xRatio, yRatio: p.yRatio, rRatio: BLUR_MARK_RATIO, mode: blurMode });
       redrawBlurMarks();
       updateBlurHint();
       lastTapInfo = null;
@@ -752,7 +785,7 @@ if (HAS_TOUCH){
     const yRatio = (e.clientY - rect.top) / rect.height;
     const idx = nearestMarkIndex(xRatio, yRatio, 0.7);
     if (idx >= 0) blurMarks.splice(idx, 1);
-    else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO });
+    else blurMarks.push({ xRatio, yRatio, rRatio: BLUR_MARK_RATIO, mode: blurMode });
     redrawBlurMarks();
     updateBlurHint();
   });
@@ -768,6 +801,7 @@ function endPinch(){
 
 el.blurReset.addEventListener("click", () => {
   blurMarks = [];
+  setBlurMode("keep");
   redrawBlurMarks();
   updateBlurHint();
 });
@@ -953,26 +987,39 @@ el.send.addEventListener("click", () => {
     },
     async () => {
       try {
-        // 「残したい人(=ぼかさない人)」の指定(任意)があれば、参照用の切り出し画像を先にアップロードする。
+        // 「残したい人」「ぼかしてほしい人」の指定(任意)があれば、参照用の切り出し画像を先にアップロードする。
         // ここが失敗しても、動画本体の投稿自体は必ず完了させる(1件ずつtry/catchする)。
-        let keepFaces = [];
-        let keepFaceErrorDetail = "";
-        if (blurMarks.length > 0){
-          const results = await Promise.allSettled(blurMarks.map(async (m, i) => {
+        const uploadMarks = async (marks, tag) => {
+          if (marks.length === 0) return { list: [], errorDetail: "" };
+          const results = await Promise.allSettled(marks.map(async (m, i) => {
             const blob = await cropMarkToBlob(m);
             if (!blob) throw new Error("crop-blob-null");
-            const refPath = `events/${EV}/uploads/${uid}/${id}_keep_${i}.jpg`;
+            const refPath = `events/${EV}/uploads/${uid}/${id}_${tag}_${i}.jpg`;
             await uploadBytesResumable(stRef(storage, refPath), blob, { contentType: "image/jpeg" });
             return { storagePath: refPath, xRatio: m.xRatio, yRatio: m.yRatio, sizeRatio: (m.rRatio || BLUR_MARK_RATIO) * 2 };
           }));
-          keepFaces = results.filter(r => r.status === "fulfilled").map(r => r.value);
+          const list = results.filter(r => r.status === "fulfilled").map(r => r.value);
           const failed = results.filter(r => r.status === "rejected");
+          let errorDetail = "";
           if (failed.length > 0){
-            console.error("[event-digest] keepFaces upload failed:", failed.map(r => r.reason));
+            console.error(`[event-digest] ${tag} upload failed:`, failed.map(r => r.reason));
             const first = failed[0].reason;
-            keepFaceErrorDetail = (first && (first.code || first.message)) ? String(first.code || first.message) : String(first);
+            errorDetail = (first && (first.code || first.message)) ? String(first.code || first.message) : String(first);
           }
-        }
+          return { list, errorDetail };
+        };
+
+        const keepMarks = blurMarks.filter((m) => m.mode !== "blur");
+        const forceMarks = blurMarks.filter((m) => m.mode === "blur");
+        const [keepResult, forceResult] = await Promise.all([
+          uploadMarks(keepMarks, "keep"),
+          uploadMarks(forceMarks, "forceblur"),
+        ]);
+        const keepFaces = keepResult.list;
+        const forceBlurFaces = forceResult.list;
+        const uploadErrorDetail = keepResult.errorDetail || forceResult.errorDetail;
+        const anyMarkFailed = (keepMarks.length > 0 && keepFaces.length === 0) ||
+                               (forceMarks.length > 0 && forceBlurFaces.length === 0);
 
         const rec = {
           nickname, uid,
@@ -983,14 +1030,15 @@ el.send.addEventListener("click", () => {
           status: "uploaded"
         };
         if (keepFaces.length > 0) rec.keepFaces = keepFaces;
+        if (forceBlurFaces.length > 0) rec.forceBlurFaces = forceBlurFaces;
         await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
         await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
           fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
         });
         mine[id] = { fileName: f.name, storagePath, bytes: f.size };
         faceDone();
-        if (blurMarks.length > 0 && keepFaces.length === 0){
-          showMsg(`投稿は受け付けましたが、顔の指定は反映できませんでした。ご了承ください。（詳細: ${keepFaceErrorDetail}）`, "warn");
+        if (anyMarkFailed){
+          showMsg(`投稿は受け付けましたが、顔の指定は反映できませんでした。ご了承ください。（詳細: ${uploadErrorDetail}）`, "warn");
         } else {
           showMsg("投稿を受け付けました。ありがとうございます。", "ok");
         }
