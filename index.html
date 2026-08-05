@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-08-03b  (「このまま投稿する/顔を指定してぼかす」の2択を先に明示)
+  BUILD: 2026-08-03c  (「全員ぼかす」を3つ目の選択肢として追加)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -262,6 +262,7 @@
       <div class="blurChoiceRow" id="blurChoiceRow">
         <button type="button" class="blurChoiceBtn on" id="blurChoiceNo">このまま投稿する<br><span>(顔はぼかしません)</span></button>
         <button type="button" class="blurChoiceBtn" id="blurChoiceYes">顔を指定してぼかす<br><span>(残す人・ぼかす人を選ぶ)</span></button>
+        <button type="button" class="blurChoiceBtn" id="blurChoiceAll">全員ぼかす<br><span>(写っている人すべて)</span></button>
       </div>
       <div id="blurDetail" style="display:none">
         <div class="blurModeRow" id="blurModeRow">
@@ -278,7 +279,6 @@
         </div>
         <p class="blurHint" id="blurHintText"></p>
       </div>
-      <input type="checkbox" id="blurSkipCheck" style="display:none">
     </div>
 
     <div class="field">
@@ -381,7 +381,8 @@ const el = {
   closedTitle:$("closedTitle"), closedBody:$("closedBody"),
   blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
   blurChoiceRow:$("blurChoiceRow"), blurChoiceNo:$("blurChoiceNo"), blurChoiceYes:$("blurChoiceYes"),
-  blurDetail:$("blurDetail"), blurSkipCheck:$("blurSkipCheck"),
+  blurChoiceAll:$("blurChoiceAll"),
+  blurDetail:$("blurDetail"),
   blurModeKeep:$("blurModeKeep"), blurModeBlur:$("blurModeBlur"),
   blurStage:$("blurStage"), blurLoading:$("blurLoading"),
   blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText"),
@@ -412,6 +413,7 @@ let isClosed = false;
 let blurMarks = [];         // [{ xRatio, yRatio, rRatio, mode: 'keep'|'blur' }]
 let blurMode = "keep";      // 今タップすると付くモード
 let blurFrameToken = 0;     // 選び直しの競合を防ぐための連番
+let blurChoiceMode = "none";   // "none"(ぼかさない) / "specify"(指定する) / "all"(全員ぼかす)
 let blurFrameAtSec = 0;     // 今キャンバスに取り込んでいるコマの、動画内での時刻(秒)
 const BLUR_MARK_RATIO = 0.16;   // 新規タップ時の既定サイズ(フレーム短辺に対する割合)
 const BLUR_MARK_MIN = 0.05;     // ピンチで縮小できる下限
@@ -498,9 +500,10 @@ function resetBlurUI(){
   blurMarks = [];
   blurFrameAtSec = 0;
   setBlurMode("keep");
-  el.blurSkipCheck.checked = true;   // 既定は「このまま投稿する」(顔の指定は任意)
+  blurChoiceMode = "none";   // 既定は「このまま投稿する」(顔の指定は任意)
   el.blurChoiceNo.classList.add("on");
   el.blurChoiceYes.classList.remove("on");
+  el.blurChoiceAll.classList.remove("on");
   el.blurDetail.style.display = "none";
   el.blurSec.classList.remove("show");
   el.blurReset.disabled = true;
@@ -715,21 +718,23 @@ const HAS_TOUCH = ("ontouchstart" in window);
 el.blurModeKeep.addEventListener("click", () => setBlurMode("keep"));
 el.blurModeBlur.addEventListener("click", () => setBlurMode("blur"));
 
-function applyBlurSkipState(){
-  const skip = el.blurSkipCheck.checked;
-  el.blurChoiceNo.classList.toggle("on", skip);
-  el.blurChoiceYes.classList.toggle("on", !skip);
-  el.blurDetail.style.display = skip ? "none" : "";
-  el.scrubRow.classList.toggle("show", !skip && scrubVideo && isFinite(scrubVideo.duration));
-  if (skip){
+function setBlurChoiceMode(mode){
+  blurChoiceMode = mode;
+  el.blurChoiceNo.classList.toggle("on", mode === "none");
+  el.blurChoiceYes.classList.toggle("on", mode === "specify");
+  el.blurChoiceAll.classList.toggle("on", mode === "all");
+  el.blurDetail.style.display = (mode === "specify") ? "" : "none";
+  el.scrubRow.classList.toggle("show", mode === "specify" && scrubVideo && isFinite(scrubVideo.duration));
+  if (mode !== "specify"){
     blurMarks = [];
     el.blurReset.disabled = true;
   } else {
     updateBlurHint();
   }
 }
-el.blurChoiceNo.addEventListener("click", () => { el.blurSkipCheck.checked = true; applyBlurSkipState(); });
-el.blurChoiceYes.addEventListener("click", () => { el.blurSkipCheck.checked = false; applyBlurSkipState(); });
+el.blurChoiceNo.addEventListener("click", () => setBlurChoiceMode("none"));
+el.blurChoiceYes.addEventListener("click", () => setBlurChoiceMode("specify"));
+el.blurChoiceAll.addEventListener("click", () => setBlurChoiceMode("all"));
 
 if (HAS_TOUCH){
   el.blurCanvas.addEventListener("touchstart", (e) => {
@@ -1053,9 +1058,8 @@ el.send.addEventListener("click", () => {
           return { list, errorDetail };
         };
 
-        const skipBlur = el.blurSkipCheck.checked;
-        const keepMarks = skipBlur ? [] : blurMarks.filter((m) => m.mode !== "blur");
-        const forceMarks = skipBlur ? [] : blurMarks.filter((m) => m.mode === "blur");
+        const keepMarks = (blurChoiceMode === "specify") ? blurMarks.filter((m) => m.mode !== "blur") : [];
+        const forceMarks = (blurChoiceMode === "specify") ? blurMarks.filter((m) => m.mode === "blur") : [];
         const [keepResult, forceResult] = await Promise.all([
           uploadMarks(keepMarks, "keep"),
           uploadMarks(forceMarks, "forceblur"),
@@ -1077,6 +1081,7 @@ el.send.addEventListener("click", () => {
         if (keepFaces.length > 0) rec.keepFaces = keepFaces;
         if (forceBlurFaces.length > 0) rec.forceBlurFaces = forceBlurFaces;
         if (keepFaces.length > 0 || forceBlurFaces.length > 0) rec.faceMarksAtSec = blurFrameAtSec;
+        if (blurChoiceMode === "all") rec.blurAllFaces = true;
         await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
         await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
           fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
