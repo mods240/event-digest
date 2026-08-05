@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-07-31g  (サムネイル選択スライダーを追加。ドラッグ移動・ダブルタップ削除にも対応)
+  BUILD: 2026-08-03  (アンカー(タップ起点)前後トラッキング対応。時刻を記録して送信)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -394,6 +394,7 @@ let isClosed = false;
 let blurMarks = [];         // [{ xRatio, yRatio, rRatio, mode: 'keep'|'blur' }]
 let blurMode = "keep";      // 今タップすると付くモード
 let blurFrameToken = 0;     // 選び直しの競合を防ぐための連番
+let blurFrameAtSec = 0;     // 今キャンバスに取り込んでいるコマの、動画内での時刻(秒)
 const BLUR_MARK_RATIO = 0.16;   // 新規タップ時の既定サイズ(フレーム短辺に対する割合)
 const BLUR_MARK_MIN = 0.05;     // ピンチで縮小できる下限
 const BLUR_MARK_MAX = 0.55;     // ピンチで拡大できる上限
@@ -477,6 +478,7 @@ function setBlurMode(mode){
 
 function resetBlurUI(){
   blurMarks = [];
+  blurFrameAtSec = 0;
   setBlurMode("keep");
   el.blurSec.classList.remove("show");
   el.blurReset.disabled = true;
@@ -600,6 +602,7 @@ function prepareBlurStage(file){
       if (seeked) return; // 一部端末で複数回発火することがあるため一度だけ処理
       seeked = true;
       clearTimeout(timer);
+      blurFrameAtSec = video.currentTime || 0;
       finish(() => el.blurCanvas.getContext("2d").drawImage(video, 0, 0, el.blurCanvas.width, el.blurCanvas.height),
              video.videoWidth, video.videoHeight);
       // 動画は破棄せず、サムネイル選び(スクラブ)用に保持しておく
@@ -639,6 +642,7 @@ function seekScrubTo(ratio){
     const ctx = canvas.getContext("2d");
     ctx.drawImage(scrubVideo, 0, 0, canvas.width, canvas.height);
     canvas.__baseFrame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    blurFrameAtSec = scrubVideo.currentTime || 0;
     // フレームが変わったので、それまでの位置指定はリセットする
     blurMarks = [];
     redrawBlurMarks();
@@ -1033,6 +1037,7 @@ el.send.addEventListener("click", () => {
         };
         if (keepFaces.length > 0) rec.keepFaces = keepFaces;
         if (forceBlurFaces.length > 0) rec.forceBlurFaces = forceBlurFaces;
+        if (keepFaces.length > 0 || forceBlurFaces.length > 0) rec.faceMarksAtSec = blurFrameAtSec;
         await set(dbRef(db, `events/${EV}/uploads/${id}`), rec);
         await set(dbRef(db, `events/${EV}/myUploads/${uid}/${id}`), {
           fileName: f.name, storagePath, bytes: f.size, at: serverTimestamp()
