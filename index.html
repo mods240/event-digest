@@ -101,6 +101,8 @@
     cursor:pointer;padding:2px 0;text-decoration:underline;
   }
   .blurSec .blurReset:disabled{color:var(--muted);text-decoration:none;cursor:default}
+  .blurSkipRow{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:13px;color:var(--muted);cursor:pointer}
+  .blurSkipRow input{width:17px;height:17px;flex:0 0 auto}
   .blurModeRow{display:flex;gap:8px;margin-bottom:9px}
   .blurModeBtn{
     flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);
@@ -250,6 +252,10 @@
         <span class="blurTitle" id="blurTitle"></span>
         <button type="button" class="blurReset" id="blurReset" disabled>指定をやり直す</button>
       </div>
+      <label class="blurSkipRow" id="blurSkipRow">
+        <input type="checkbox" id="blurSkipCheck">
+        <span>顔の指定はしません(誰の顔もぼかしません)</span>
+      </label>
       <div class="blurModeRow" id="blurModeRow">
         <button type="button" class="blurModeBtn on" id="blurModeKeep">🟠残す人</button>
         <button type="button" class="blurModeBtn" id="blurModeBlur">🔴ぼかしてほしい人</button>
@@ -364,6 +370,7 @@ const el = {
   send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
   closedTitle:$("closedTitle"), closedBody:$("closedBody"),
   blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
+  blurSkipRow:$("blurSkipRow"), blurSkipCheck:$("blurSkipCheck"),
   blurModeKeep:$("blurModeKeep"), blurModeBlur:$("blurModeBlur"),
   blurStage:$("blurStage"), blurLoading:$("blurLoading"),
   blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText"),
@@ -480,6 +487,9 @@ function resetBlurUI(){
   blurMarks = [];
   blurFrameAtSec = 0;
   setBlurMode("keep");
+  el.blurSkipCheck.checked = false;
+  el.blurModeRow.style.display = "";
+  el.blurStage.style.display = "";
   el.blurSec.classList.remove("show");
   el.blurReset.disabled = true;
   const ctx = el.blurCanvas.getContext("2d");
@@ -692,6 +702,21 @@ const HAS_TOUCH = ("ontouchstart" in window);
 
 el.blurModeKeep.addEventListener("click", () => setBlurMode("keep"));
 el.blurModeBlur.addEventListener("click", () => setBlurMode("blur"));
+
+function applyBlurSkipState(){
+  const skip = el.blurSkipCheck.checked;
+  el.blurModeRow.style.display = skip ? "none" : "";
+  el.blurStage.style.display = skip ? "none" : "";
+  el.scrubRow.classList.toggle("show", !skip && scrubVideo && isFinite(scrubVideo.duration));
+  if (skip){
+    blurMarks = [];
+    el.blurHintText.textContent = "この投稿では、誰の顔もぼかしません。";
+    el.blurReset.disabled = true;
+  } else {
+    updateBlurHint();
+  }
+}
+el.blurSkipCheck.addEventListener("change", applyBlurSkipState);
 
 if (HAS_TOUCH){
   el.blurCanvas.addEventListener("touchstart", (e) => {
@@ -1015,8 +1040,9 @@ el.send.addEventListener("click", () => {
           return { list, errorDetail };
         };
 
-        const keepMarks = blurMarks.filter((m) => m.mode !== "blur");
-        const forceMarks = blurMarks.filter((m) => m.mode === "blur");
+        const skipBlur = el.blurSkipCheck.checked;
+        const keepMarks = skipBlur ? [] : blurMarks.filter((m) => m.mode !== "blur");
+        const forceMarks = skipBlur ? [] : blurMarks.filter((m) => m.mode === "blur");
         const [keepResult, forceResult] = await Promise.all([
           uploadMarks(keepMarks, "keep"),
           uploadMarks(forceMarks, "forceblur"),
