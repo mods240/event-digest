@@ -7,7 +7,7 @@
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-08-03  (アンカー(タップ起点)前後トラッキング対応。時刻を記録して送信)
+  BUILD: 2026-08-03b  (「このまま投稿する/顔を指定してぼかす」の2択を先に明示)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -101,8 +101,15 @@
     cursor:pointer;padding:2px 0;text-decoration:underline;
   }
   .blurSec .blurReset:disabled{color:var(--muted);text-decoration:none;cursor:default}
-  .blurSkipRow{display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:13px;color:var(--muted);cursor:pointer}
-  .blurSkipRow input{width:17px;height:17px;flex:0 0 auto}
+  .blurChoiceRow{display:flex;gap:8px;margin:0 0 12px}
+  .blurChoiceBtn{
+    flex:1;padding:10px 8px;border-radius:11px;border:1px solid var(--line);
+    background:transparent;color:var(--light);font-family:inherit;font-size:12.5px;font-weight:700;
+    line-height:1.5;cursor:pointer;text-align:center;
+  }
+  .blurChoiceBtn span{font-size:10.5px;font-weight:400;color:var(--muted)}
+  .blurChoiceBtn.on{background:var(--amber);border-color:var(--amber);color:#1a1200}
+  .blurChoiceBtn.on span{color:#1a1200;opacity:.75}
   .blurModeRow{display:flex;gap:8px;margin-bottom:9px}
   .blurModeBtn{
     flex:1;padding:8px 6px;border-radius:9px;border:1px solid var(--line);
@@ -252,23 +259,26 @@
         <span class="blurTitle" id="blurTitle"></span>
         <button type="button" class="blurReset" id="blurReset" disabled>指定をやり直す</button>
       </div>
-      <label class="blurSkipRow" id="blurSkipRow">
-        <input type="checkbox" id="blurSkipCheck">
-        <span>顔の指定はしません(誰の顔もぼかしません)</span>
-      </label>
-      <div class="blurModeRow" id="blurModeRow">
-        <button type="button" class="blurModeBtn on" id="blurModeKeep">🟠残す人</button>
-        <button type="button" class="blurModeBtn" id="blurModeBlur">🔴ぼかしてほしい人</button>
+      <div class="blurChoiceRow" id="blurChoiceRow">
+        <button type="button" class="blurChoiceBtn on" id="blurChoiceNo">このまま投稿する<br><span>(顔はぼかしません)</span></button>
+        <button type="button" class="blurChoiceBtn" id="blurChoiceYes">顔を指定してぼかす<br><span>(残す人・ぼかす人を選ぶ)</span></button>
       </div>
-      <div class="blurStage" id="blurStage">
-        <span class="blurLoading" id="blurLoading">画像を読み込み中…</span>
-        <canvas id="blurCanvas"></canvas>
+      <div id="blurDetail" style="display:none">
+        <div class="blurModeRow" id="blurModeRow">
+          <button type="button" class="blurModeBtn on" id="blurModeKeep">🟠残す人</button>
+          <button type="button" class="blurModeBtn" id="blurModeBlur">🔴ぼかしてほしい人</button>
+        </div>
+        <div class="blurStage" id="blurStage">
+          <span class="blurLoading" id="blurLoading">画像を読み込み中…</span>
+          <canvas id="blurCanvas"></canvas>
+        </div>
+        <div class="scrubRow" id="scrubRow">
+          <span class="scrubLabel">サムネイルを選ぶ</span>
+          <input type="range" id="scrubSlider" min="0" max="1000" value="0" step="1">
+        </div>
+        <p class="blurHint" id="blurHintText"></p>
       </div>
-      <div class="scrubRow" id="scrubRow">
-        <span class="scrubLabel">サムネイルを選ぶ</span>
-        <input type="range" id="scrubSlider" min="0" max="1000" value="0" step="1">
-      </div>
-      <p class="blurHint" id="blurHintText"></p>
+      <input type="checkbox" id="blurSkipCheck" style="display:none">
     </div>
 
     <div class="field">
@@ -370,7 +380,8 @@ const el = {
   send:$("send"), msg:$("msg"), list:$("list"), count:$("count"), notes:$("notes"),
   closedTitle:$("closedTitle"), closedBody:$("closedBody"),
   blurSec:$("blurSec"), blurTitle:$("blurTitle"), blurReset:$("blurReset"),
-  blurSkipRow:$("blurSkipRow"), blurSkipCheck:$("blurSkipCheck"),
+  blurChoiceRow:$("blurChoiceRow"), blurChoiceNo:$("blurChoiceNo"), blurChoiceYes:$("blurChoiceYes"),
+  blurDetail:$("blurDetail"), blurSkipCheck:$("blurSkipCheck"),
   blurModeKeep:$("blurModeKeep"), blurModeBlur:$("blurModeBlur"),
   blurStage:$("blurStage"), blurLoading:$("blurLoading"),
   blurCanvas:$("blurCanvas"), blurHintText:$("blurHintText"),
@@ -487,9 +498,10 @@ function resetBlurUI(){
   blurMarks = [];
   blurFrameAtSec = 0;
   setBlurMode("keep");
-  el.blurSkipCheck.checked = false;
-  el.blurModeRow.style.display = "";
-  el.blurStage.style.display = "";
+  el.blurSkipCheck.checked = true;   // 既定は「このまま投稿する」(顔の指定は任意)
+  el.blurChoiceNo.classList.add("on");
+  el.blurChoiceYes.classList.remove("on");
+  el.blurDetail.style.display = "none";
   el.blurSec.classList.remove("show");
   el.blurReset.disabled = true;
   const ctx = el.blurCanvas.getContext("2d");
@@ -705,18 +717,19 @@ el.blurModeBlur.addEventListener("click", () => setBlurMode("blur"));
 
 function applyBlurSkipState(){
   const skip = el.blurSkipCheck.checked;
-  el.blurModeRow.style.display = skip ? "none" : "";
-  el.blurStage.style.display = skip ? "none" : "";
+  el.blurChoiceNo.classList.toggle("on", skip);
+  el.blurChoiceYes.classList.toggle("on", !skip);
+  el.blurDetail.style.display = skip ? "none" : "";
   el.scrubRow.classList.toggle("show", !skip && scrubVideo && isFinite(scrubVideo.duration));
   if (skip){
     blurMarks = [];
-    el.blurHintText.textContent = "この投稿では、誰の顔もぼかしません。";
     el.blurReset.disabled = true;
   } else {
     updateBlurHint();
   }
 }
-el.blurSkipCheck.addEventListener("change", applyBlurSkipState);
+el.blurChoiceNo.addEventListener("click", () => { el.blurSkipCheck.checked = true; applyBlurSkipState(); });
+el.blurChoiceYes.addEventListener("click", () => { el.blurSkipCheck.checked = false; applyBlurSkipState(); });
 
 if (HAS_TOUCH){
   el.blurCanvas.addEventListener("touchstart", (e) => {
