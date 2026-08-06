@@ -2,12 +2,12 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#12172B">
 <title>動画を投稿する</title>
 <!--
   Event Digest / 投稿ページ (Component A)
-  BUILD: 2026-08-03c  (「全員ぼかす」を3つ目の選択肢として追加)
+  BUILD: 2026-08-03b  (「このまま投稿する/顔を指定してぼかす」の2択を先に明示)
   Firebase 設定は反映済み。文言の変更は APP_CONFIG.texts で。
 -->
 <style>
@@ -25,7 +25,7 @@
     --r:16px;
   }
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  html,body{margin:0;padding:0}
+  html,body{margin:0;padding:0;touch-action:manipulation}
   body{
     background:var(--ink);
     background-image:radial-gradient(120% 60% at 50% -10%, rgba(242,177,56,.16) 0%, rgba(242,177,56,0) 60%);
